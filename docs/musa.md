@@ -106,29 +106,13 @@ quality. A three-step run does not establish convergence or CUDA parity.
 
 ## Multi-node launch
 
-Run the following on **each node**, using a different `NODE_RANK` (0, 1, ...)
-and that host's actual training RoCE adapter names:
-
-```bash
-export MASTER_ADDR=<node-0-reachable-ip> MASTER_PORT=29620
-export NNODES=2 NODE_RANK=0 NUM_GPUS=8
-export MCCL_IB_HCA='=mlx5_2:1,mlx5_3:1,...'
-export MCCL_SOCKET_IFNAME=bond0 GLOO_SOCKET_IFNAME=bond0
-export DATA_ROOT=/shared/path/to/Agilex_Cobot_Magic_fold_clothes
-export PRETRAINED_MODEL_PATH=/shared/path/to/wsp_2_pretrain
-export TOKENIZER_DIR=/shared/path/to/umt5-xxl
-export OUTPUT_DIR=/shared/path/to/output/unique-run-name
-export TMPDIR=/tmp/worldscape-policy TRITON_CACHE_DIR=/tmp/worldscape-triton
-mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR"
-bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
-```
-
-The multi-node entry reuses the single-node recipe and maps node parameters to
-its `MLP_WORKER_*` launcher contract. It defaults to 50 steps, eight processes
-per node and batch 8 per process (global batch 128 with two nodes). It does not
-SSH to other machines: start it once on each node with the same rendezvous
-address/port, output directory and training options. Keep the launchers running
-until both exit. Python, MUSA libraries and source files must agree across nodes.
+Use `posttrain_agilex_fold_shirt_text_musa_multinode.sh` once on the controller
+with a hostfile, as described in **One-command multi-node launch** below.
+The same script has an internal `--node` mode for the SSH coordinator or an
+external scheduler; normal users do not invoke it separately on every node.
+It reuses the single-node recipe, with 50 steps and eight processes per node
+by default (batch8, global batch128 with two nodes). Python, MUSA libraries
+and source files must agree across nodes.
 
 Communication defaults reference the
 [starVLA MUSA launcher](https://github.com/LionG1001/starVLA/blob/gl_musa-dev/examples/Robotwin/train_files/run_robotwin_train_qwen3_5_musa.sh)
@@ -184,8 +168,8 @@ validation. Keep the option disabled for unvalidated training configurations.
 ## One-command multi-node launch
 
 From a controller with Python 3 and key-based SSH access to every node, use
-`recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh` once. It calls
-the existing per-node recipe; no second terminal or manual NODE_RANK is needed.
+`recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh` once. It calls
+its internal `--node` mode; no second terminal or manual NODE_RANK is needed.
 The hostfile follows the SSH orchestration approach of the
 [ms-swift multi-node launcher](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/launch_qwen3_5_27b_multinode.sh).
 
@@ -208,8 +192,8 @@ export RUN_NAME=fold-shirt-review-01
 export OUTPUT_DIR=/path/to/runs/$RUN_NAME  # Must not already exist on any node
 export DATALOADER_NUM_WORKERS=8 MCCL_MAX_NCHANNELS=32
 export WSP_MUSA_ZERO_ALIGNMENT_BYTES=128 RUN_STEPS=50
-CHECK_ONLY=1 bash recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh
-bash recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh
+CHECK_ONLY=1 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
+bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
 ```
 
 `DRYRUN=1` prints commands without connecting. `CHECK_ONLY=1` checks SSH,
@@ -229,5 +213,5 @@ Only an explicit set of training environment variables is forwarded, never the
 full controller environment or credentials. For benchmark callbacks, set
 `REMOTE_PYTHONPATH="$REMOTE_WORKDIR/docs/performance/tools:$REMOTE_WORKDIR/src"`
 and append `callbacks._target_=perf50_monitor.PerformanceMonitor`. The Python
-helper needs no torch on the controller. The per-node recipe remains available
+helper needs no torch on the controller. The internal `--node` mode remains available
 for scheduler-managed launches and debugging.

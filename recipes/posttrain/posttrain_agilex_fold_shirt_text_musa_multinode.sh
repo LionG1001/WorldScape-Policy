@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Run once per node. Communication defaults follow the referenced starVLA
-# gl_musa-dev launcher; HCA names must be supplied for each physical host.
+# Run once on the controller with HOSTFILE. --node is the internal node mode.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ "${1:-}" != "--node" ]]; then
+    exec python3 "$ROOT/recipes/common/musa_multinode_launch.py" "$@"
+fi
+shift
 : "${MASTER_ADDR:?Set MASTER_ADDR to node 0's reachable address}"
 : "${NODE_RANK:?Set NODE_RANK to the zero-based node index}"
 : "${MCCL_IB_HCA:?Set MCCL_IB_HCA to this node's training RoCE adapters}"

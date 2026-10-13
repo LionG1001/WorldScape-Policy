@@ -165,8 +165,10 @@ def main(args):
     for rank, (host, ssh_port, hca) in enumerate(nodes):
         rank_env = dict(env, NNODES=str(len(nodes)), NODE_RANK=str(rank), MASTER_ADDR=master,
                         MASTER_PORT=port, MCCL_IB_HCA=hca)
-        config = dict(env=rank_env, workdir=workdir, entry=os.environ.get('REMOTE_SCRIPT', ENTRY),
-                      args=args, token=token)
+        entry = os.environ.get('REMOTE_SCRIPT', ENTRY)
+        node_args = ['--node', *args] if entry == ENTRY else args
+        config = dict(env=rank_env, workdir=workdir, entry=entry,
+                      args=node_args, token=token)
         payload = encode(config)
         prefix = ['docker', 'exec', container] if container else []
         remote = [*prefix, 'python3', str(Path(workdir) / HELPER)]

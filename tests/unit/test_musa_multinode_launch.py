@@ -6,7 +6,7 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-LAUNCHER = ROOT / 'recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh'
+LAUNCHER = ROOT / 'recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh'
 
 
 def setup(tmp_path, script):
@@ -74,3 +74,23 @@ def test_interrupt_stops_both(tmp_path):
     finally:
         if process.poll() is None:
             process.kill()
+
+
+def test_default_entry_dispatches_node_mode(tmp_path):
+    import shutil
+    env = setup(tmp_path, 'exit 99\n')
+    project = tmp_path / 'remote project'
+    for relative in ['recipes/common/musa_multinode_launch.py',
+                     'recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh']:
+        destination = project / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, destination)
+    (project / 'recipes/posttrain/posttrain_agilex_fold_shirt_text_musa.sh').write_text(
+        'printf "node=%s world=%s arg=%s\\n" "$NODE_RANK" "$MLP_WORKER_NUM" "$1"\n')
+    env['REMOTE_WORKDIR'] = str(project)
+    env.pop('REMOTE_SCRIPT')
+    result = subprocess.run(['bash', str(LAUNCHER), 'literal x'], env=env,
+                            capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    for rank in range(2):
+        assert f'node={rank} world=2 arg=literal x' in (tmp_path / f'out/launcher-node-{rank}.log').read_text()

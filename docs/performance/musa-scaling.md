@@ -35,7 +35,7 @@
 
 ## 复现配置
 
-在已准备好数据和模型的环境，单机使用专用脚本，双机在每台分别设置NODE_RANK、MASTER_ADDR和本机MCCL_IB_HCA后启动多机脚本。公共入口继承这些变量，无需改安装目录。
+在已准备好数据和模型的环境，单机使用专用脚本，双机按docs/musa.md配置HOSTFILE、REMOTE_WORKDIR、MASTER_ADDR等后，在控制端执行一次多机脚本。公共入口继承这些变量，无需改安装目录。
 
 ```bash
 export RUN_STEPS=50 PER_DEVICE_TRAIN_BATCH_SIZE=8 GRADIENT_ACCUMULATION_STEPS=1
@@ -44,7 +44,7 @@ export SAVE_STEPS=0 SAVE_AT_END=false DATALOADER_NUM_WORKERS=8
 export WSP_MUSA_ATTENTION_BACKEND=sdpa WSP_MUSA_ZERO_ALIGNMENT_BYTES=128
 # 单机：不要设置MCCL_MIN_NCHANNELS/MCCL_MAX_NCHANNELS
 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa.sh
-# 双机：每台执行，设置各自NODE_RANK、HCA以及共同MASTER_ADDR
+# 双机：控制端执行一次，先按docs/musa.md配置HOSTFILE和远端路径
 MCCL_MAX_NCHANNELS=32 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
 ```
 
@@ -56,6 +56,7 @@ MCCL_MAX_NCHANNELS=32 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_mu
 
 ```bash
 export PYTHONPATH="$PWD/docs/performance/tools${PYTHONPATH:+:$PYTHONPATH}"
+export REMOTE_PYTHONPATH="$REMOTE_WORKDIR/docs/performance/tools:$REMOTE_WORKDIR/src"
 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh \
   callbacks._target_=perf50_monitor.PerformanceMonitor
 python docs/performance/tools/summarize_50step.py "$OUTPUT_DIR"
