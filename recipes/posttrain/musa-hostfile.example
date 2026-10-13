@@ -1,0 +1,4 @@
+# One row per node: SSH target, SSH port, this node's HCA list.
+# Use real endpoints/HCA names. Row order assigns NODE_RANK (first row = 0).
+user@node0 22 =mlx5_0:1,mlx5_1:1
+user@node1 22 =mlx5_2:1,mlx5_3:1

@@ -180,3 +180,54 @@ Aligned checkpoints carry alignment metadata. Resume with the same alignment;
 a mismatch is rejected before loading optimizer state. Full-model checkpoint
 save/resume and long-run convergence remain outside the short benchmark
 validation. Keep the option disabled for unvalidated training configurations.
+
+## One-command multi-node launch
+
+From a controller with Python 3 and key-based SSH access to every node, use
+`recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh` once. It calls
+the existing per-node recipe; no second terminal or manual NODE_RANK is needed.
+The hostfile follows the SSH orchestration approach of the
+[ms-swift multi-node launcher](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/launch_qwen3_5_27b_multinode.sh).
+
+Copy `recipes/posttrain/musa-hostfile.example` to a private hostfile and set each
+row to `user@host ssh_port HCA_list`. Row order determines rank. SSH endpoints
+and ports may differ from the training network address. Keep known-host checks
+enabled and verify SSH access first. The source checkout and dependencies must
+already exist at the same absolute path on all nodes; this launcher does not
+copy code, install packages, or restart SSH services.
+
+```bash
+# Also export DATA_ROOT, PRETRAINED_MODEL_PATH, TOKENIZER_DIR and training knobs
+# from the single-node instructions. These must be paths on the remote nodes.
+export HOSTFILE=/path/to/private-hostfile
+export REMOTE_WORKDIR=/path/to/WorldScape-Policy
+export REMOTE_CONTAINER=gl-worldscape-test  # SSH to host, then docker exec
+# For direct SSH into a container or host Python environment: unset REMOTE_CONTAINER
+export MASTER_ADDR=192.0.2.10 MASTER_PORT=29620  # Replace with training IP
+export RUN_NAME=fold-shirt-review-01
+export OUTPUT_DIR=/path/to/runs/$RUN_NAME  # Must not already exist on any node
+export DATALOADER_NUM_WORKERS=8 MCCL_MAX_NCHANNELS=32
+export WSP_MUSA_ZERO_ALIGNMENT_BYTES=128 RUN_STEPS=50
+CHECK_ONLY=1 bash recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh
+bash recipes/posttrain/launch_agilex_fold_shirt_text_musa_multinode.sh
+```
+
+`DRYRUN=1` prints commands without connecting. `CHECK_ONLY=1` checks SSH,
+container, helper/entry and paths on every node without training. Normal launch
+performs the same checks before starting all nodes concurrently. GPU availability
+must be checked before launching. Arguments after the script are forwarded as
+literal config overrides, without shell evaluation.
+
+Remote logs and exit codes are `OUTPUT_DIR/launcher-node-RANK.log` and `.exit`;
+controller SSH logs are under the printed local directory (`LAUNCH_LOG_DIR`
+overrides it). The controller remains in the foreground until all nodes exit.
+A failed node or Ctrl-C cancels only supervisors/process groups with this launch's
+unique token. If SSH becomes unreachable, cleanup cannot be guaranteed; inspect
+the reported node before starting another run. Use tmux for a persistent controller.
+
+Only an explicit set of training environment variables is forwarded, never the
+full controller environment or credentials. For benchmark callbacks, set
+`REMOTE_PYTHONPATH="$REMOTE_WORKDIR/docs/performance/tools:$REMOTE_WORKDIR/src"`
+and append `callbacks._target_=perf50_monitor.PerformanceMonitor`. The Python
+helper needs no torch on the controller. The per-node recipe remains available
+for scheduler-managed launches and debugging.
