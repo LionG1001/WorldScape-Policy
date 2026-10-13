@@ -80,6 +80,7 @@ def build_wan22_policy_from_checkpoint(
     expected_semantic_gate_only: bool | None = None,
     expected_semantic_grad_clip_norm: float | None = None,
     training: bool = False,
+    torch_dtype: str | None = None,
     diffusion_model_pretrained_path: str | None = None,
     text_encoder_pretrained_path: str | None = None,
     image_encoder_pretrained_path: str | None = None,
@@ -106,6 +107,8 @@ def build_wan22_policy_from_checkpoint(
     makes the precedence unambiguous: checkpoint > raw component > random init.
     """
 
+    if torch_dtype not in {None, "float32", "float16", "bfloat16"}:
+        raise ValueError("torch_dtype must be float32, float16, bfloat16, or null")
     directory = Path(checkpoint_dir) if checkpoint_dir else None
     if initialization not in {
         "auto",
@@ -337,6 +340,8 @@ def build_wan22_policy_from_checkpoint(
     policy.initialization_report = report.as_dict()
     LOGGER.info("WSP initialization sources: %s", json.dumps(report.as_dict()))
     policy.train(training).requires_grad_(training)
+    if torch_dtype is not None:
+        policy.to(dtype=getattr(torch, torch_dtype))
     return policy.to(device)
 
 

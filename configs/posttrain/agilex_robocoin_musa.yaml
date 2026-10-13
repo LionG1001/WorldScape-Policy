@@ -1,0 +1,74 @@
+# Native RoboCOIN LeRobot data; this does not require the customer plugin.
+includes:
+  - common_wan22.yaml
+
+selectors:
+  task: agilex-fold-shirt-text
+  run_name: ${oc.env:RUN_NAME,musa}
+  mode: interactive
+  visual_prompt: none
+  dataset_name: robocoin_sim_eef6d_text
+
+profiles:
+  dataset_name:
+    robocoin_sim_eef6d_text: {}
+
+model:
+  # Load the full native checkpoint once on CPU, cast before accelerator transfer.
+  device: cpu
+  torch_dtype: bfloat16
+  diffusion_model_pretrained_path: null
+  text_encoder_pretrained_path: null
+  image_encoder_pretrained_path: null
+  vae_pretrained_path: null
+  pretrained_action_adapter_index: ${pretrained_adapter_source_rows.agilex}
+  expected_mode: interactive
+  expected_num_frames: 33
+  expected_action_horizon: 24
+
+batch_adapter:
+  embodiment_ids:
+    agilex: 0
+
+data_loader:
+  _target_: worldscape_policy.training.data.build_registered_loader
+  dataset_plugin: worldscape_policy.data.robocoin
+  dataset_name: robocoin_sim_eef6d_text
+  mode: interactive
+  batch_size: ${oc.decode:${oc.env:PER_DEVICE_TRAIN_BATCH_SIZE,8}}
+  shuffle: true
+  bucket_by_length: true
+  num_workers: ${oc.decode:${oc.env:DATALOADER_NUM_WORKERS,4}}
+  prefetch_factor: 2
+  persistent_workers: true
+  pin_memory: false
+  seed: ${oc.decode:${oc.env:SEED,62}}
+  augment_video: true
+  training: true
+  wo_norm: true
+  dataset_kwargs:
+    data_root: ${oc.env:DATA_ROOT}
+    visual_prompt: none
+    embodiment: agilex
+    action_horizon: 24
+    max_event_chunks: 16
+    history_num_frames: 8
+    history_stride: 24
+    history_window: 192
+    temporal_packing: true
+    max_chunk_size: 4
+    respect_trajectory_segments: false
+    single_high_level_instruction_per_episode: true
+    episode_cache_size: 1
+    cache_video_resize_width: 320
+    cache_video_resize_height: 160
+    rotation_representation: ${oc.env:ROBOCOIN_ROTATION_REPRESENTATION,euler_xyz}
+    step_stride: ${oc.decode:${oc.env:DATASET_STEP_STRIDE,1}}
+    seed: ${oc.decode:${oc.env:SEED,62}}
+
+training:
+  save_at_end: ${oc.decode:${oc.env:SAVE_AT_END,false}}
+
+callbacks:
+  _target_: worldscape_policy.training.musa_monitor.MusaStepMonitor
+  output_dir: ${training.checkpoint_dir}

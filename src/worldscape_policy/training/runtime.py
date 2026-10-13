@@ -53,6 +53,10 @@ class NativeTrainingRuntime:
         )
         if self.backend not in {"single", "ddp", "deepspeed"}:
             raise ValueError("training backend must be auto, single, ddp, or deepspeed")
+        # Device binding must precede MCCL/NCCL initialization.
+        local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+        if self.config.device in {"cuda", "auto"} and torch.cuda.is_available():
+            torch.cuda.set_device(local_rank)
         self.owns_process_group = False
         needs_group = self.backend in {"ddp", "deepspeed"} and env_world > 1
         if needs_group and not dist.is_initialized():
@@ -124,7 +128,7 @@ class NativeTrainingRuntime:
             if self.world_size < 2:
                 raise RuntimeError("DDP training requires torchrun WORLD_SIZE greater than one")
             kwargs: dict[str, Any] = {}
-            if self.device.type == "cuda":
+            if self.device.type in {"cuda", "musa"}:
                 kwargs = {"device_ids": [self.local_rank], "output_device": self.local_rank}
             self.forward_module = DistributedDataParallel(
                 adapter, find_unused_parameters=True, **kwargs
@@ -147,12 +151,15 @@ class NativeTrainingRuntime:
             zero["stage"] = stage
             ds_config["zero_optimization"] = zero
             ds_config.setdefault("train_micro_batch_size_per_gpu", 1)
+            had_process_group = dist.is_initialized()
             engine, optimizer, _, _ = deepspeed.initialize(
                 model=adapter,
                 optimizer=optimizer,
                 config=ds_config,
                 model_parameters=[p for p in policy.parameters() if p.requires_grad],
             )
+            if not had_process_group and dist.is_initialized():
+                self.owns_process_group = True
             self.engine = engine
             self.forward_module = engine
         return self.forward_module, optimizer

@@ -1,0 +1,3 @@
+# Install into an existing torch_musa image; never replace its torch stack.
+# Other runtime dependencies are in requirements.txt (omit its CUDA torch pins).
+torchada==0.1.96

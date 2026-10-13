@@ -1,5 +1,15 @@
 """Composable WorldScape Policy public API."""
 
+# Opt in before importing any CUDA-facing modules (including in DataLoader workers).
+import os as _os
+
+if _os.environ.get("WSP_USE_TORCHADA") == "1":
+    _os.environ.setdefault("TORCHADA_FORCE_CUDA_AVAILABLE", "1")
+    try:
+        import torchada as _torchada  # noqa: F401
+    except ImportError as exc:
+        raise ImportError("WSP_USE_TORCHADA=1 requires torchada; install requirements-musa.txt") from exc
+
 from worldscape_policy.conditioning import (
     AutoConditioner,
     AutoPlanningFeatures,

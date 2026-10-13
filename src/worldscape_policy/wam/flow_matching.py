@@ -814,10 +814,10 @@ class Wan22LegacyExactKernel:
     ) -> torch.Generator:
         source_device = torch.device(generator.device)
         target_device = torch.device(device)
-        if target_device.type == "cuda" and target_device.index is None:
-            target_device = torch.device("cuda", torch.cuda.current_device())
-        if source_device.type == "cuda" and source_device.index is None:
-            source_device = torch.device("cuda", torch.cuda.current_device())
+        if target_device.type in {"cuda", "musa"} and target_device.index is None:
+            target_device = torch.device(target_device.type, torch.cuda.current_device())
+        if source_device.type in {"cuda", "musa"} and source_device.index is None:
+            source_device = torch.device(source_device.type, torch.cuda.current_device())
 
         # Reuse a compatible generator so every random draw advances the state
         # owned (and checkpointed) by the caller. Generator states are
