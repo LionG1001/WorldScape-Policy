@@ -1,4 +1,4 @@
-# Single-node MUSA bring-up
+# MUSA bring-up
 
 The opt-in MUSA recipe uses [torchada](https://github.com/MooreThreads/torchada)
 0.1.96 and an existing `torch_musa` image with a MUSA-enabled DeepSpeed build.
@@ -92,3 +92,55 @@ python -m pytest -q tests/unit/test_musa_sdpa.py \
 Before a long run: verify multi-rank steps and finite gradients, confirm data
 semantics, then validate checkpoint save/resume, numerical behavior and task
 quality. A three-step run does not establish convergence or CUDA parity.
+
+## Multi-node launch
+
+Run the following on **each node**, using a different `NODE_RANK` (0, 1, ...)
+and that host's actual training RoCE adapter names:
+
+```bash
+export MASTER_ADDR=<node-0-reachable-ip> MASTER_PORT=29620
+export NNODES=2 NODE_RANK=0 NUM_GPUS=8
+export MCCL_IB_HCA='=mlx5_2:1,mlx5_3:1,...'
+export MCCL_SOCKET_IFNAME=bond0 GLOO_SOCKET_IFNAME=bond0
+export DATA_ROOT=/shared/path/to/Agilex_Cobot_Magic_fold_clothes
+export PRETRAINED_MODEL_PATH=/shared/path/to/wsp_2_pretrain
+export TOKENIZER_DIR=/shared/path/to/umt5-xxl
+export OUTPUT_DIR=/shared/path/to/output/unique-run-name
+export TMPDIR=/tmp/worldscape-policy TRITON_CACHE_DIR=/tmp/worldscape-triton
+mkdir -p "$TMPDIR" "$TRITON_CACHE_DIR"
+bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
+```
+
+The multi-node entry reuses the single-node recipe and maps node parameters to
+its `MLP_WORKER_*` launcher contract. It defaults to 50 steps, eight processes
+per node and batch 8 per process (global batch 128 with two nodes). It does not
+SSH to other machines: start it once on each node with the same rendezvous
+address/port, output directory and training options. Keep the launchers running
+until both exit. Python, MUSA libraries and source files must agree across nodes.
+
+Communication defaults reference the
+[starVLA MUSA launcher](https://github.com/LionG1001/starVLA/blob/gl_musa-dev/examples/Robotwin/train_files/run_robotwin_train_qwen3_5_musa.sh)
+and [ms-swift node launcher](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/run_qwen3.5_27b_node.sh):
+RoCE v2 / GID 3, IB enabled, 20 MiB communication buffers, up to 14 channels,
+and explicit per-host HCA selection. Verify these values against the actual
+network; adapter numbering can differ between otherwise identical machines.
+`MCCL_CROSS_NIC` is not set by the launcher; the library default applies unless
+the caller sets it explicitly. All defaults can be overridden in the environment.
+Async launch remains enabled
+(`MUSA_LAUNCH_BLOCKING=0`) for measurement. Qwen/Megatron-specific patches and
+debug flags from the reference scripts are not required by this training path.
+
+With host-network containers, check rendezvous and SSH ports for conflicts
+before starting services. Container SSH is optional for this launcher; a host
+SSH connection plus `docker exec` is sufficient. Verify a 16-rank collective
+before the first two-node training run, and use node-local temporary/cache paths.
+
+Validated the two-node entry on 2 × 8 S5000 GPUs: all 16 ranks completed
+50 optimizer steps at global batch 128, both launchers exited 0, metrics were
+finite and sampled weights changed. The run used stride 1 and 5% warmup,
+with `MCCL_CROSS_NIC` unset. With a synchronized measurement callback, the
+preselected steps 11–50 averaged 6.829 s/step (P90 7.223 s); all 50 steps
+including the cold first step averaged 7.993 s. Peak allocated memory was
+33.69–34.34 GiB per device. These are bring-up measurements, not a quality or
+cross-platform parity result; checkpoint save/resume remains unvalidated.
