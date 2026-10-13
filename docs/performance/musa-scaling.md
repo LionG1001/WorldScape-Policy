@@ -19,6 +19,8 @@
 |双机|32|0|4|6.579723|8.171353|
 |双机|32|128|4|6.963333|10.644908|
 |双机|32|128|8|5.233234|5.637506|
+|双机|14|128|8|5.722464|6.523356|
+|双机（overlap=true）|32|128|8|6.004172|6.574093|
 
 以上均完成所有rank的50个optimizer step，正常exit0，loss/梯度有限且采样参数更新通过。双机workers8的全50步均值6.905252s，启动至退出631.27s，峰值allocated33.69–34.34GiB/卡，loss首末0.9059246→0.4542787。
 
@@ -27,7 +29,7 @@
 - 单机14channel上限拖慢optimizer通信；移除上限后的均值恢复至5.693712s。原生SDPA仍实际命中flash_musa。
 - 实际大小的16rank BF16 all-gather微基准：14channels未对齐2.015820s→128字节对齐0.069802s；32channels为0.889763s→0.039373s。微基准不代表整步等比例加速。
 - padding后workers4数据供应出现长尾，双机整步没有改善，这一负结果保留。仅workers4→8，同32channels/pad128均值6.963333→5.233234s，降低24.85%；每步最慢rank的DataLoader.next均值2.339813→0.100853s。
-- 单机workers8已完成50步exit0，4.897588s；与双机workers8的5.233234s配对，吞吐加速1.871725×、扩展效率93.5863%，未达98%。双机需≤4.997538s；14channels/workers8对照仍在测试，后续接近门槛时须重复配对验证。
+- 单机workers8已完成50步exit0，4.897588s；与双机workers8的5.233234s配对，吞吐加速1.871725×、扩展效率93.5863%，未达98%。双机需≤4.997538s；14channels/workers8已测5.722464s，未优于32；当前候选正在做单/双机重复验证。
 - 8/16rank小模型对齐前后3步loss和所有参数逐位一致；16rank相同alignment checkpoint API保存/加载通过。完整模型恢复、恢复后下一步一致性和长期收敛未认证。
 - 组合定向测试31项通过；CPU staging补充修正后ZeRO定向3项通过。保存alignment元数据，恢复时不匹配会拒绝加载。
 
@@ -47,3 +49,18 @@ MCCL_MAX_NCHANNELS=32 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_mu
 ```
 
 默认monitor用于正确性/显存检查；上述性能来自额外同步的端到端计时回调，不能将普通控制台内部step_time直接当成同口径。公开记录不包含机器地址、客户文档、原始日志或内部依赖源码。
+
+## 同口径计时工具
+
+`tools/perf50_monitor.py`是本次计时回调的原样副本，逐步同步设备，interval包含取数据、前后处理和监控。每次使用新输出目录，在原启动命令后追加回调覆盖：
+
+```bash
+export PYTHONPATH="$PWD/docs/performance/tools${PYTHONPATH:+:$PYTHONPATH}"
+bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh \
+  callbacks._target_=perf50_monitor.PerformanceMonitor
+python docs/performance/tools/summarize_50step.py "$OUTPUT_DIR"
+```
+
+单机同样追加回调覆盖。两机所有进程正常退出后再汇总；输出必须包含全部rank的50步。另核验每rank的`rank-*-steps.jsonl`中loss/梯度有限、参数更新和实际累积步数。输出日志包含本机环境信息，分享前按接收方范围审查。
+
+通信重叠补充：16rank、6层512维BF16、多bucket、4步，overlap off/on的模型权重、FP32 master分片和loss最大差均0。完整50步16rank实际启用overlap，均值6.004172s、最慢rank取数据等待均值0.650171s（最大11.560406s）；未证明端到端收益，交付候选保持关闭。数据等待差异意味着不能把全部回退归因于overlap本身。
