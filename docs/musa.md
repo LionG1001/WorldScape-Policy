@@ -36,10 +36,21 @@ Each rank binds its local device before process-group/model initialization.
 The full native checkpoint loads on CPU, then casts to BF16 before transfer.
 This requires substantial host RAM when all eight ranks load simultaneously.
 
-Wan attention dispatches MUSA tensors to SDPA, preserving lengths, scaling,
-bottom-right causal alignment and local windows. CUDA's existing path remains
-available. This is a correctness fallback, not a performance claim about
-FlashAttention equivalence.
+Wan attention preserves lengths, scaling, bottom-right causal alignment and local
+windows. `WSP_MUSA_ATTENTION_BACKEND=sdpa` is the default: native MUSA SDPA can
+itself dispatch to FlashAttention forward/backward. An independently installed
+MUSA-enabled `flash_attn` package is optional; `flash_attn` explicitly selects
+its FA2 varlen path, while `auto` selects it when available and supported.
+Unsupported contracts use the mask-preserving SDPA path. An explicitly
+requested, supported FA2 path with a missing extension fails clearly; runtime
+kernel errors and OOM are not silently swallowed. CUDA's existing path remains
+available. Package availability alone does not establish a performance gain.
+
+The external FA2 MUSA path supports head dimensions 64–192, FP16/BF16, zero
+dropout and unbounded windows. Causal mode requires matching per-example query
+and key lengths; other cases use SDPA. Ragged output padding is restored with
+zero gradients for empty rows. Actual WAM shape microbenchmarks on the validated
+stack favored native SDPA; use the backend switch for controlled comparisons.
 
 ## Dataset semantics to review
 
@@ -122,8 +133,10 @@ until both exit. Python, MUSA libraries and source files must agree across nodes
 Communication defaults reference the
 [starVLA MUSA launcher](https://github.com/LionG1001/starVLA/blob/gl_musa-dev/examples/Robotwin/train_files/run_robotwin_train_qwen3_5_musa.sh)
 and [ms-swift node launcher](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/run_qwen3.5_27b_node.sh):
-RoCE v2 / GID 3, IB enabled, 20 MiB communication buffers, up to 14 channels,
-and explicit per-host HCA selection. Verify these values against the actual
+RoCE v2 / GID 3, IB enabled, 20 MiB communication buffers,
+and explicit per-host HCA selection. The single-node recipe leaves channel counts to MCCL. The multi-node recipe
+defaults to at most 14 channels; override `MCCL_MAX_NCHANNELS` for measured
+network-specific tuning. Verify these values against the actual
 network; adapter numbering can differ between otherwise identical machines.
 `MCCL_CROSS_NIC` is not set by the launcher; the library default applies unless
 the caller sets it explicitly. All defaults can be overridden in the environment.
@@ -144,3 +157,26 @@ preselected steps 11–50 averaged 6.829 s/step (P90 7.223 s); all 50 steps
 including the cold first step averaged 7.993 s. Peak allocated memory was
 33.69–34.34 GiB per device. These are bring-up measurements, not a quality or
 cross-platform parity result; checkpoint save/resume remains unvalidated.
+
+
+## Experimental ZeRO-2 shard alignment
+
+`WSP_MUSA_ZERO_ALIGNMENT_BYTES=128` opts into larger BF16/FP16 parameter-shard
+alignment during DeepSpeed engine construction. Default `0` preserves the
+installed DeepSpeed behavior. Supported byte alignments are 4, 8, 16, 32, 64,
+128 and 256. This changes only flat-buffer tail padding, not parameter shapes
+or batch sizes; it requires MUSA ZeRO-2 and a compatible DeepSpeed alignment
+contract. The alignment factor remains on the engine for collective and
+checkpoint bookkeeping. The temporary construction patch is removed afterward.
+
+This targets misaligned, large `all_gather_into_tensor` buffers; changing
+`allgather_bucket_size` does not split that native collective path. Test actual
+message sizes before choosing `MCCL_MIN_NCHANNELS` / `MCCL_MAX_NCHANNELS`;
+more channels may change compute/communication contention. Single- and
+multi-node recipes now share `recipes/common/musa_runtime.sh` defaults.
+`MCCL_CROSS_NIC` remains unset.
+
+Aligned checkpoints carry alignment metadata. Resume with the same alignment;
+a mismatch is rejected before loading optimizer state. Full-model checkpoint
+save/resume and long-run convergence remain outside the short benchmark
+validation. Keep the option disabled for unvalidated training configurations.

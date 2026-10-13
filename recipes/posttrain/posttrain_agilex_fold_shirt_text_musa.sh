@@ -4,6 +4,7 @@ set -euo pipefail
 # MUSA / torchada, interactive text, native RoboCOIN simulated EEF6D data.
 # Default is a bounded 3-step bring-up. Set RUN_STEPS=null for a full schedule.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/recipes/common/musa_runtime.sh"
 : "${DATA_ROOT:?Set DATA_ROOT to the RoboCOIN LeRobot dataset root}"
 : "${PRETRAINED_MODEL_PATH:?Set PRETRAINED_MODEL_PATH to the full native WSP checkpoint}"
 : "${TOKENIZER_DIR:?Set TOKENIZER_DIR to the local umt5-xxl tokenizer}"
