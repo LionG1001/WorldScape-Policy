@@ -1,0 +1,16 @@
+{
+  "source_file": "rank0-step11-trace.json",
+  "device_ids": [
+    "0"
+  ],
+  "kernel_count": 102373,
+  "kernel_sum_s": 4.349927568999917,
+  "active_union_s": 4.349927572143555,
+  "kernel_span_s": 7.235175708007812,
+  "comm_union_s": 0.1898684853515625,
+  "compute_union_s": 4.160059086791992,
+  "comm_compute_overlap_s": 0.0,
+  "comm_exposed_s": 0.1898684853515625,
+  "idle_within_kernel_span_s": 2.8852481358642574,
+  "note": "Diagnostic profiled step only; not substituted for unprofiled 50-step wall timings."
+}
