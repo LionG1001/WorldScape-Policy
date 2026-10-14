@@ -1,0 +1,3 @@
+# One host per row; equal slots required. First host is the master.
+node0 slots=8
+node1 slots=8
