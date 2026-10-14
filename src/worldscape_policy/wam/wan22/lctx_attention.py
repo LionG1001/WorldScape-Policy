@@ -119,11 +119,11 @@ def flash_attention(
     assert q.device.type in {'cuda', 'musa'} and q.size(-1) <= 256
 
     if q.device.type == 'musa':
-        from .sdpa import variable_length_sdpa
-        return variable_length_sdpa(
+        from .musa_attention import musa_attention
+        return musa_attention(
             q, k, v, q_lens=q_lens, k_lens=k_lens,
             dropout_p=dropout_p, softmax_scale=softmax_scale, q_scale=q_scale,
-            causal=causal, window_size=window_size, dtype=dtype,
+            causal=causal, window_size=window_size, deterministic=deterministic, dtype=dtype,
         )
 
     # Use PyTorch SDPA on pre-Ampere GPUs (FlashAttention requires Ampere or newer)
@@ -225,13 +225,7 @@ class AttentionModule(torch.nn.Module):
         backend: Optional[str] = None,
     ):
         super().__init__()
-        if backend is None:
-            backend = "torch"
-
-        if os.getenv("ATTENTION_BACKEND") is not None:
-            backend = os.getenv("ATTENTION_BACKEND")
-        else:
-            backend = "FA2"
+        backend = os.environ.get("ATTENTION_BACKEND", backend or "FA2")
 
         # Check for TensorRT at runtime, not import time
         if os.getenv("ENABLE_TENSORRT", "False").lower() == "true":
@@ -246,22 +240,14 @@ class AttentionModule(torch.nn.Module):
         self.backend = backend
 
         if backend == "torch":
-            def _torch_impl(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-                out_dtype = q.dtype
-                q = q.transpose(1, 2).to(dtype)
-                k = k.transpose(1, 2).to(dtype)
-                v = v.transpose(1, 2).to(dtype)
-
-                out = torch.nn.functional.scaled_dot_product_attention(
-                    q, k, v,
-                    attn_mask=None,
-                    is_causal=causal,
-                    dropout_p=dropout_p,
-                    scale=softmax_scale,
+            def _torch_impl(q, k, v, q_lens=None, k_lens=None):
+                from .sdpa import variable_length_sdpa
+                return variable_length_sdpa(
+                    q, k, v, q_lens=q_lens, k_lens=k_lens,
+                    dropout_p=dropout_p, softmax_scale=softmax_scale,
+                    q_scale=q_scale, causal=causal, window_size=window_size,
+                    dtype=dtype,
                 )
-
-                out = out.transpose(1, 2).contiguous()
-                return out.to(out_dtype)
             self.attn_func = _torch_impl
 
         elif  backend == "torch_onnx":
@@ -343,7 +329,6 @@ class AttentionModule(torch.nn.Module):
         k_lens: Optional[torch.Tensor] = None,
     ):
         if (
-            self.backend == "torch" or
             self.backend == "torch_onnx" or
             (self.backend == "TE" and TRANSFORMER_ENGINE_AVAILABLE)
         ):
