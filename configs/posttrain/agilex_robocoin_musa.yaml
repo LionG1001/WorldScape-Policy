@@ -68,7 +68,3 @@ data_loader:
 
 training:
   save_at_end: ${oc.decode:${oc.env:SAVE_AT_END,false}}
-
-callbacks:
-  _target_: worldscape_policy.training.musa_monitor.MusaStepMonitor
-  output_dir: ${training.checkpoint_dir}

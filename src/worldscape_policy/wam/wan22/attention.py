@@ -98,11 +98,11 @@ def flash_attention(
     assert q.device.type in {'cuda', 'musa'} and q.size(-1) <= 256
 
     if q.device.type == 'musa':
-        from .sdpa import variable_length_sdpa
-        return variable_length_sdpa(
+        from .musa_attention import musa_attention
+        return musa_attention(
             q, k, v, q_lens=q_lens, k_lens=k_lens,
             dropout_p=dropout_p, softmax_scale=softmax_scale, q_scale=q_scale,
-            causal=causal, window_size=window_size, dtype=dtype,
+            causal=causal, window_size=window_size, deterministic=deterministic, dtype=dtype,
         )
 
     # Use PyTorch SDPA on pre-Ampere GPUs (FlashAttention requires Ampere or newer)
@@ -232,7 +232,7 @@ def attention(
     dtype=torch.bfloat16,
     fa_version=None,
 ):
-    if FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
+    if q.device.type == 'musa' or FLASH_ATTN_2_AVAILABLE or FLASH_ATTN_3_AVAILABLE:
         return flash_attention(
             q=q,
             k=k,
