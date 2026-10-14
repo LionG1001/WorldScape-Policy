@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
 import random
 from dataclasses import dataclass
 from datetime import timedelta
@@ -152,12 +154,14 @@ class NativeTrainingRuntime:
             ds_config["zero_optimization"] = zero
             ds_config.setdefault("train_micro_batch_size_per_gpu", 1)
             had_process_group = dist.is_initialized()
-            engine, optimizer, _, _ = deepspeed.initialize(
-                model=adapter,
-                optimizer=optimizer,
-                config=ds_config,
-                model_parameters=[p for p in policy.parameters() if p.requires_grad],
-            )
+            from .musa_zero import musa_zero_alignment
+            with musa_zero_alignment(self.device.type, stage):
+                engine, optimizer, _, _ = deepspeed.initialize(
+                    model=adapter,
+                    optimizer=optimizer,
+                    config=ds_config,
+                    model_parameters=[p for p in policy.parameters() if p.requires_grad],
+                )
             if not had_process_group and dist.is_initialized():
                 self.owns_process_group = True
             self.engine = engine
@@ -194,10 +198,20 @@ class NativeTrainingRuntime:
         saved = self.engine.save_checkpoint(save_dir, tag=tag)
         if saved is False:
             raise RuntimeError("DeepSpeed engine checkpoint save failed")
+        alignment = getattr(getattr(self.engine, "optimizer", None), "_wsp_alignment_bytes", 0)
+        if alignment and self.is_rank_zero:
+            (Path(save_dir) / tag / "wsp-zero-alignment.json").write_text(
+                json.dumps({"alignment_bytes": alignment})
+            )
 
     def load_deepspeed_checkpoint(self, load_dir: str, *, tag: str) -> None:
         if self.engine is None:
             raise RuntimeError("DeepSpeed checkpoint load requires an initialized engine")
+        alignment = getattr(getattr(self.engine, "optimizer", None), "_wsp_alignment_bytes", 0)
+        metadata = Path(load_dir) / tag / "wsp-zero-alignment.json"
+        saved_alignment = json.loads(metadata.read_text())["alignment_bytes"] if metadata.exists() else 0
+        if saved_alignment != alignment:
+            raise ValueError("DeepSpeed checkpoint shard alignment differs from this run")
         loaded = self.engine.load_checkpoint(
             load_dir,
             tag=tag,
@@ -254,7 +268,7 @@ class NativeTrainingRuntime:
         if self.engine is None:
             return {}
         scaler = getattr(self.engine, "loss_scaler", None)
-        return {
+        state = {
             "optimizer": self.engine.optimizer.state_dict(),
             "global_steps": int(getattr(self.engine, "global_steps", 0)),
             "skipped_steps": int(getattr(self.engine, "skipped_steps", 0)),
@@ -263,14 +277,22 @@ class NativeTrainingRuntime:
             ),
         }
 
+        alignment = getattr(self.engine.optimizer, '_wsp_alignment_bytes', 0)
+        if alignment:
+            state['musa_zero_alignment_bytes'] = alignment
+        return state
+
     def load_state_dict(self, state: dict[str, Any]) -> None:
         if self.engine is None:
             if state:
                 raise ValueError("single/DDP runtime state must be empty")
             return
         expected = {"optimizer", "global_steps", "skipped_steps", "loss_scaler"}
-        if set(state) != expected:
+        if set(state) - {"musa_zero_alignment_bytes"} != expected:
             raise ValueError("DeepSpeed runtime checkpoint state is incomplete")
+        alignment = getattr(self.engine.optimizer, '_wsp_alignment_bytes', 0)
+        if state.get('musa_zero_alignment_bytes', 0) != alignment:
+            raise ValueError('DeepSpeed checkpoint shard alignment differs from this run')
         self.engine.optimizer.load_state_dict(state["optimizer"])
         self.engine.global_steps = int(state["global_steps"])
         self.engine.skipped_steps = int(state["skipped_steps"])
