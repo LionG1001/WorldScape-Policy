@@ -5,9 +5,15 @@ The MUSA recipe runs the full 50,000-step schedule by default and saves every
 OUTPUT_DIR for each single-node run; the multi-node controller generates a
 unique run name and output directory unless overridden.
 
+Deployment variables are explicit at the top of the existing shell entries.
+No .env file is loaded. With deployment paths configured, change to the checkout
+and execute the desired shell entry directly. Single-node run names are generated
+automatically. Both modes retain full-training defaults; use RUN_STEPS=50,
+SAVE_STEPS=0 and SAVE_AT_END=false for a short validation run.
+
 ## One-command launch
 
-Create `hostfile` in the launch directory, using the
+Create `hostfile` in the repository root, using the
 [ms-swift format](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/hostfile):
 
 ```text
@@ -34,13 +40,10 @@ them. It runs the existing training recipe through its internal --node mode.
 
 ## Optional connection settings
 
-- HOSTFILE: defaults to ./hostfile.
-- SSH_USER / SSH_PORT: only needed when SSH config/current user and port 22
-  do not match the training environment.
-- REMOTE_CONTAINER: set to a container name for host SSH followed by docker exec;
-  omit for direct SSH into the training environment.
-- REMOTE_WORKDIR: defaults to this checkout's absolute path; override when the
-  remote checkout is mounted elsewhere.
+- HOSTFILE: defaults to hostfile in the repository root.
+- SSH_USER / SSH_PORT: deployment defaults are mccxadmin and port 22; edit or override for your environment.
+- REMOTE_CONTAINER: defaults to gl-worldscape-test; set an empty value for direct SSH.
+- REMOTE_WORKDIR: the deployment path is explicit at the top of the multi-node script; edit or override it for another environment.
 - MASTER_ADDR / MASTER_PORT: override only when the first host is not reachable
   over the training network or port 29620 is occupied.
 
@@ -49,7 +52,7 @@ specific set of RoCE adapters, configure MCCL_IB_HCA in the node environment;
 exporting it on the controller applies the same list to all nodes. Network
 defaults are in recipes/common/musa_runtime.sh and can be overridden.
 Single-node training does not cap channels; multi-node training defaults to
-MCCL_MAX_NCHANNELS=14 and accepts an override.
+MCCL_MAX_NCHANNELS=32 and accepts an override.
 
 DRYRUN=1 prints commands without SSH. CHECK_ONLY=1 checks connections and paths
 without starting training. Actual launch performs the same checks first.
