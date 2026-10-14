@@ -65,6 +65,24 @@ Per-node logs and exit codes are saved under OUTPUT_DIR; controller SSH logs
 are under logs/multinode-<id>. Failure or Ctrl-C terminates this launch's process
 groups. If SSH becomes unreachable, inspect the remote processes manually.
 
+## Stop training
+
+From the same checkout inside the launch container:
+
+```bash
+bash stop_all.sh
+```
+
+This uses HOSTFILE and SSH_PORT (62218 by default) to stop this checkout's
+training launchers and their children on all listed nodes. Other Python jobs
+are left alone. Processes receive termination signals before forced cleanup;
+no extra checkpoint is saved and existing outputs are retained. Unreachable
+nodes are reported as unconfirmed and need manual inspection.
+
+MCCL_DEBUG defaults to WARN, suppressing routine INFO output while retaining
+warnings. Set MCCL_DEBUG=INFO before launching to debug communication; the
+controller forwards this override to every node.
+
 ## Optional ZeRO-2 alignment
 
 WSP_MUSA_ZERO_ALIGNMENT_BYTES=128 pads flattened BF16/FP16 parameter groups so
