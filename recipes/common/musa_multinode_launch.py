@@ -136,12 +136,7 @@ def hosts(path):
         slots = slot_field.removeprefix('slots=')
         if not slots.isdigit() or int(slots) < 1:
             raise ValueError('Hostfile requires positive slots=N')
-        user = os.environ.get('SSH_USER', '')
-        if user and '@' not in target:
-            if not re.fullmatch(r'[A-Za-z0-9_.-]+', user):
-                raise ValueError('Invalid SSH user')
-            target = user + '@' + target
-        port = os.environ.get('SSH_PORT', '22')
+        port = os.environ.get('SSH_PORT', '62218')
         if target.startswith('-') or not re.fullmatch(r'[A-Za-z0-9_.@:-]+', target):
             raise ValueError('Invalid SSH target')
         if not port.isdigit() or not 1 <= int(port) <= 65535:
@@ -161,9 +156,7 @@ def main(args):
     for key in ('DATA_ROOT', 'PRETRAINED_MODEL_PATH', 'TOKENIZER_DIR'):
         if not env.get(key):
             raise ValueError(f'Set {key}')
-    workdir = os.environ.get('REMOTE_WORKDIR', str(Path(__file__).resolve().parents[2]))
-    if not Path(workdir).is_absolute():
-        raise ValueError('REMOTE_WORKDIR must be absolute')
+    workdir = str(Path(__file__).resolve().parents[2])
     env.setdefault('RUN_NAME', 'musa-' + datetime.now().strftime('%Y%m%d-%H%M%S') + '-' + uuid.uuid4().hex[:8])
     env.setdefault('OUTPUT_DIR', str(Path(workdir) / 'checkpoints' / env['RUN_NAME']))
     if not Path(env['OUTPUT_DIR']).is_absolute():
@@ -173,7 +166,6 @@ def main(args):
     port = os.environ.get('MASTER_PORT', '29620')
     if not port.isdigit() or not 1 <= int(port) <= 65535:
         raise ValueError('Invalid MASTER_PORT')
-    container = os.environ.get('REMOTE_CONTAINER', '')
     token = uuid.uuid4().hex
     commands = []
     for rank, (host, ssh_port, slots) in enumerate(nodes):
@@ -184,12 +176,11 @@ def main(args):
         config = dict(env=rank_env, workdir=workdir, entry=entry,
                       args=node_args, token=token)
         payload = encode(config)
-        prefix = ['docker', 'exec', container] if container else []
-        remote = [*prefix, 'python3', str(Path(workdir) / HELPER)]
+        remote = ['python3', str(Path(workdir) / HELPER)]
         ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
                '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-p', ssh_port, host]
         commands.append((ssh, remote, payload))
-        print(f'node={rank} ssh={host}:{ssh_port} container={container or "direct"} '
+        print(f'node={rank} ssh={host}:{ssh_port} '
               f'master={master}:{port} slots={slots}', flush=True)
     if os.environ.get('DRYRUN') == '1':
         for ssh, remote, payload in commands:

@@ -4,9 +4,8 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Controller deployment settings. Edit these defaults for another environment.
 export HOSTFILE="${HOSTFILE:-$ROOT/hostfile}"
-export SSH_USER="${SSH_USER-mccxadmin}"
-export REMOTE_CONTAINER="${REMOTE_CONTAINER-gl-worldscape-test}"
-export REMOTE_WORKDIR="${REMOTE_WORKDIR:-/data/share/liang.geng/WorldScape-Policy/src/WorldScape-Policy}"
+# Launch inside a training container; all peers use this SSH port and source path.
+export SSH_PORT="${SSH_PORT:-62218}"
 export DATA_ROOT="${DATA_ROOT:-/data/share/datasets/RoboCOIN/Agilex_Cobot_Magic_fold_clothes}"
 export PRETRAINED_MODEL_PATH="${PRETRAINED_MODEL_PATH:-/data/share/models/worldscape-policy/wsp_2_pretrain}"
 export TOKENIZER_DIR="${TOKENIZER_DIR:-/data/share/models/worldscape-policy/umt5-xxl}"

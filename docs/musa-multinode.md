@@ -25,7 +25,8 @@ Use reachable hostnames or IPs. Each node must have equal positive slots.
 The first host is the default rendezvous address; row order assigns ranks.
 Only host and slots belong in this file.
 
-From the source checkout, after installing the MUSA dependencies on all nodes:
+Run once inside one training container, from the source checkout. Every peer
+container must have the same absolute source path and dependencies:
 
 ```bash
 export DATA_ROOT=/path/to/dataset
@@ -34,16 +35,20 @@ export TOKENIZER_DIR=/path/to/tokenizer
 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
 ```
 
-SSH keys and host-key trust must already be configured. Code, data and model
+Passwordless SSH and host-key trust must already be configured from the launch
+container to every container listed in hostfile, including itself, on the same
+SSH port (62218 by default). SSH uses the current container user or SSH config;
+there is no host SSH followed by docker exec. Code, data and model
 paths must exist on every node. The launcher does not install or synchronize
 them. It runs the existing training recipe through its internal --node mode.
 
 ## Optional connection settings
 
 - HOSTFILE: defaults to hostfile in the repository root.
-- SSH_USER / SSH_PORT: deployment defaults are mccxadmin and port 22; edit or override for your environment.
-- REMOTE_CONTAINER: defaults to gl-worldscape-test; set an empty value for direct SSH.
-- REMOTE_WORKDIR: the deployment path is explicit at the top of the multi-node script; edit or override it for another environment.
+- SSH_PORT: defaults to 62218 for every container. Change it consistently with
+  the containers' sshd configuration; it is separate from MASTER_PORT.
+- The remote source directory is the same absolute path as the launching
+  checkout. SSH_USER, REMOTE_CONTAINER and REMOTE_WORKDIR are not used.
 - MASTER_ADDR / MASTER_PORT: override only when the first host is not reachable
   over the training network or port 29620 is occupied.
 
