@@ -129,16 +129,34 @@ def hosts(path):
         parts = shlex.split(line, comments=True)
         if not parts:
             continue
-        if len(parts) != 3:
-            raise ValueError('Hostfile rows: user@host ssh_port HCA_list')
-        target, port, hca = parts
+        target, *fields = parts
+        options = {}
+        for field in fields:
+            key, sep, value = field.partition('=')
+            if not sep or key not in {'slots', 'user', 'port', 'hca'} or not value or key in options:
+                raise ValueError('Hostfile rows: host slots=N [user=USER] [port=PORT] [hca=HCA_list]')
+            options[key] = value
+        slots = options.get('slots', '')
+        if not slots.isdigit() or int(slots) < 1:
+            raise ValueError('Hostfile requires positive slots=N')
+        user = options.get('user', os.environ.get('SSH_USER', ''))
+        if user and '@' not in target:
+            if not re.fullmatch(r'[A-Za-z0-9_.-]+', user):
+                raise ValueError('Invalid SSH user')
+            target = user + '@' + target
+        port = options.get('port', os.environ.get('SSH_PORT', '22'))
+        hca = options.get('hca', os.environ.get('MCCL_IB_HCA', ''))
         if target.startswith('-') or not re.fullmatch(r'[A-Za-z0-9_.@:-]+', target):
             raise ValueError('Invalid SSH target')
         if not port.isdigit() or not 1 <= int(port) <= 65535:
             raise ValueError('Invalid SSH port')
-        result.append((target, port, hca))
-    if len(result) < 2 or len({(h, p) for h, p, _ in result}) != len(result):
+        result.append((target, port, hca, int(slots)))
+    if len(result) < 2 or len({(h, p) for h, p, _, _ in result}) != len(result):
         raise ValueError('At least two distinct SSH endpoints required')
+    if len({s for _, _, _, s in result}) != 1:
+        raise ValueError('This torchrun recipe requires equal slots on every node')
+    if os.environ.get('NUM_GPUS') and os.environ['NUM_GPUS'] != str(result[0][3]):
+        raise ValueError('NUM_GPUS must match hostfile slots')
     return result
 
 
@@ -162,9 +180,11 @@ def main(args):
     container = os.environ.get('REMOTE_CONTAINER', '')
     token = uuid.uuid4().hex
     commands = []
-    for rank, (host, ssh_port, hca) in enumerate(nodes):
+    for rank, (host, ssh_port, hca, slots) in enumerate(nodes):
         rank_env = dict(env, NNODES=str(len(nodes)), NODE_RANK=str(rank), MASTER_ADDR=master,
-                        MASTER_PORT=port, MCCL_IB_HCA=hca)
+                        MASTER_PORT=port, NUM_GPUS=str(slots))
+        if hca:
+            rank_env['MCCL_IB_HCA'] = hca
         entry = os.environ.get('REMOTE_SCRIPT', ENTRY)
         node_args = ['--node', *args] if entry == ENTRY else args
         config = dict(env=rank_env, workdir=workdir, entry=entry,
@@ -176,7 +196,7 @@ def main(args):
                '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-p', ssh_port, host]
         commands.append((ssh, remote, payload))
         print(f'node={rank} ssh={host}:{ssh_port} container={container or "direct"} '
-              f'master={master}:{port} HCA={hca}', flush=True)
+              f'master={master}:{port} slots={slots} HCA={hca or "auto"}', flush=True)
     if os.environ.get('DRYRUN') == '1':
         for ssh, remote, payload in commands:
             print(shlex.join([*ssh, shlex.join([*remote, '_node', payload])]))

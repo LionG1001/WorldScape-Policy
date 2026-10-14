@@ -1,4 +1,7 @@
-# One row per node: SSH target, SSH port, this node's HCA list.
-# Use real endpoints/HCA names. Row order assigns NODE_RANK (first row = 0).
-user@node0 22 =mlx5_0:1,mlx5_1:1
-user@node1 22 =mlx5_2:1,mlx5_3:1
+# One node per row; row order assigns NODE_RANK. Equal slots required.
+node0 slots=8
+node1 slots=8
+# Optional fields: user=USER port=22 hca==mlx5_0:1,mlx5_1:1
+# hca== preserves the leading = used by MCCL for exact adapter matching.
+# Defaults: SSH_USER (otherwise SSH config/current user), SSH_PORT=22,
+# MCCL_IB_HCA (otherwise MCCL automatic adapter selection).

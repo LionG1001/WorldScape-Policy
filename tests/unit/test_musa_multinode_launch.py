@@ -16,7 +16,7 @@ def setup(tmp_path, script):
     ssh.write_text('#!/usr/bin/env python3\nimport os,sys\nos.execvp("bash", ["bash", "-c", sys.argv[-1]])\n')
     ssh.chmod(0o755)
     hostfile = tmp_path / 'hosts'
-    hostfile.write_text('node0 22 =mlx5_0:1\nnode1 62218 =mlx5_1:1\n')
+    hostfile.write_text('node0 slots=8 port=22 hca==mlx5_0:1\nnode1 slots=8 port=62218 hca==mlx5_1:1\n')
     entry = tmp_path / 'entry with spaces.sh'
     entry.write_text(script)
     env = dict(os.environ, PATH=str(bindir)+':'+os.environ['PATH'], HOSTFILE=str(hostfile),
@@ -94,3 +94,37 @@ def test_default_entry_dispatches_node_mode(tmp_path):
     assert result.returncode == 0, result.stderr
     for rank in range(2):
         assert f'node={rank} world=2 arg=literal x' in (tmp_path / f'out/launcher-node-{rank}.log').read_text()
+
+
+def test_hostfile_slots_and_validation(tmp_path):
+    import runpy
+    parser = runpy.run_path(str(ROOT / 'recipes/common/musa_multinode_launch.py'))['hosts']
+    path = tmp_path / 'hostfile'
+    path.write_text('# nodes\nnode0 slots=4\nnode1 slots=4 # comment\n')
+    nodes = parser(path)
+    assert [row[3] for row in nodes] == [4, 4]
+    for content in [
+        'node0 slots=8\nnode1 slots=4\n',
+        'node0 slots=0\nnode1 slots=0\n',
+        'node0 slots=8 port=99999\nnode1 slots=8\n',
+        'node0 slots=8 slots=8\nnode1 slots=8\n',
+        'node0 22 =mlx5_0:1\nnode1 22 =mlx5_1:1\n',
+    ]:
+        path.write_text(content)
+        try:
+            parser(path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(content)
+
+
+def test_plain_hostfile_sets_gpu_count(tmp_path):
+    env = setup(tmp_path, 'printf "%s\\n" "$NUM_GPUS"\n')
+    Path(env['HOSTFILE']).write_text('node0 slots=4\nnode1 slots=4\n')
+    env.pop('NUM_GPUS', None)
+    result = subprocess.run(['bash', str(LAUNCHER)], env=env, capture_output=True,
+                            text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    for rank in range(2):
+        assert (tmp_path / f'out/launcher-node-{rank}.log').read_text().strip() == '4'

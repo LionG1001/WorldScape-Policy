@@ -174,7 +174,16 @@ The hostfile follows the SSH orchestration approach of the
 [ms-swift multi-node launcher](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/launch_qwen3_5_27b_multinode.sh).
 
 Copy `recipes/posttrain/musa-hostfile.example` to a private hostfile and set each
-row to `user@host ssh_port HCA_list`. Row order determines rank. SSH endpoints
+row to `host slots=8`, matching the
+[ms-swift hostfile](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/hostfile).
+Row order determines rank; equal positive slots are required on all nodes and
+set NUM_GPUS. An explicitly set NUM_GPUS must match slots.
+Optional fields: `user=USER port=22 hca==mlx5_0:1,mlx5_1:1`.
+The second equals sign preserves MCCL's exact adapter matching prefix.
+SSH defaults are SSH_USER (otherwise SSH config/current user) and SSH_PORT=22.
+HCA defaults to MCCL_IB_HCA, otherwise MCCL selects adapters automatically.
+Per-node fields override these defaults. The former positional format is no
+longer accepted. Row order determines rank. SSH endpoints
 and ports may differ from the training network address. Keep known-host checks
 enabled and verify SSH access first. The source checkout and dependencies must
 already exist at the same absolute path on all nodes; this launcher does not
