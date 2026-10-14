@@ -5,10 +5,13 @@ set -euo pipefail
 # Runs the full schedule by default; set RUN_STEPS for a short smoke test.
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT/recipes/common/musa_runtime.sh"
-: "${DATA_ROOT:?Set DATA_ROOT to the RoboCOIN LeRobot dataset root}"
-: "${PRETRAINED_MODEL_PATH:?Set PRETRAINED_MODEL_PATH to the full native WSP checkpoint}"
-: "${TOKENIZER_DIR:?Set TOKENIZER_DIR to the local umt5-xxl tokenizer}"
-export DATA_ROOT PRETRAINED_MODEL_PATH TOKENIZER_DIR
+# Deployment paths: edit these defaults for another environment.
+export DATA_ROOT="${DATA_ROOT:-/data/share/datasets/RoboCOIN/Agilex_Cobot_Magic_fold_clothes}"
+export PRETRAINED_MODEL_PATH="${PRETRAINED_MODEL_PATH:-/data/share/models/worldscape-policy/wsp_2_pretrain}"
+export TOKENIZER_DIR="${TOKENIZER_DIR:-/data/share/models/worldscape-policy/umt5-xxl}"
+export DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-8}"
+export WSP_MUSA_ZERO_ALIGNMENT_BYTES="${WSP_MUSA_ZERO_ALIGNMENT_BYTES:-128}"
+export WSP_MUSA_ATTENTION_BACKEND="${WSP_MUSA_ATTENTION_BACKEND:-sdpa}"
 export WSP_USE_TORCHADA=1 TORCHADA_FORCE_CUDA_AVAILABLE=1 DS_ACCELERATOR=musa
 export WSP_PYTHON="${WSP_PYTHON:-$(command -v python)}"
 export WSP_AUTO_DOWNLOAD=false WSP_MODE=interactive VISUAL_PROMPT=none
@@ -20,7 +23,7 @@ export MAX_STEPS="${MAX_STEPS:-50000}" RUN_STEPS="${RUN_STEPS:-null}"
 export LEARNING_RATE="${LEARNING_RATE:-6e-5}" LR_SCHEDULE="${LR_SCHEDULE:-linear}"
 export ADAM_BETA1="${ADAM_BETA1:-0.9}" ADAM_BETA2="${ADAM_BETA2:-0.999}"
 export SEED="${SEED:-62}" SAVE_STEPS="${SAVE_STEPS:-5000}" SAVE_AT_END="${SAVE_AT_END:-true}"
-export RUN_NAME="${RUN_NAME:-musa-train}"
+export RUN_NAME="${RUN_NAME:-musa-$(date +%Y%m%d-%H%M%S)-$$}"
 export OUTPUT_DIR="${OUTPUT_DIR:-$ROOT/checkpoints/agilex-fold-shirt-text/$RUN_NAME}"
 export WANDB_ENABLED="${WANDB_ENABLED:-false}" WANDB_MODE="${WANDB_MODE:-offline}"
 export VLM_ATTN_IMPLEMENTATION=sdpa

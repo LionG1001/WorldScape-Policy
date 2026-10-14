@@ -206,3 +206,6 @@ dump.rdb
 /third_party/RoboTwin/eval_result/
 /third_party/RoboTwin/eval_video/
 /third_party/RoboTwin/policy/wsp2_policy
+
+# Private multi-node machine list
+/hostfile

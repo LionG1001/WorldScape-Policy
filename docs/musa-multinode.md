@@ -5,9 +5,15 @@ The MUSA recipe runs the full 50,000-step schedule by default and saves every
 OUTPUT_DIR for each single-node run; the multi-node controller generates a
 unique run name and output directory unless overridden.
 
+Deployment variables are explicit at the top of the existing shell entries.
+No .env file is loaded. With deployment paths configured, change to the checkout
+and execute the desired shell entry directly. Single-node run names are generated
+automatically. Both modes retain full-training defaults; use RUN_STEPS=50,
+SAVE_STEPS=0 and SAVE_AT_END=false for a short validation run.
+
 ## One-command launch
 
-Create `hostfile` in the launch directory, using the
+Create `hostfile` in the repository root, using the
 [ms-swift format](https://github.com/caizhi-mt/ms-swift/blob/v4.0.2-musa/hostfile):
 
 ```text
@@ -19,7 +25,8 @@ Use reachable hostnames or IPs. Each node must have equal positive slots.
 The first host is the default rendezvous address; row order assigns ranks.
 Only host and slots belong in this file.
 
-From the source checkout, after installing the MUSA dependencies on all nodes:
+Run once inside one training container, from the source checkout. Every peer
+container must have the same absolute source path and dependencies:
 
 ```bash
 export DATA_ROOT=/path/to/dataset
@@ -28,19 +35,20 @@ export TOKENIZER_DIR=/path/to/tokenizer
 bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa_multinode.sh
 ```
 
-SSH keys and host-key trust must already be configured. Code, data and model
+Passwordless SSH and host-key trust must already be configured from the launch
+container to every container listed in hostfile, including itself, on the same
+SSH port (62218 by default). SSH uses the current container user or SSH config;
+there is no host SSH followed by docker exec. Code, data and model
 paths must exist on every node. The launcher does not install or synchronize
 them. It runs the existing training recipe through its internal --node mode.
 
 ## Optional connection settings
 
-- HOSTFILE: defaults to ./hostfile.
-- SSH_USER / SSH_PORT: only needed when SSH config/current user and port 22
-  do not match the training environment.
-- REMOTE_CONTAINER: set to a container name for host SSH followed by docker exec;
-  omit for direct SSH into the training environment.
-- REMOTE_WORKDIR: defaults to this checkout's absolute path; override when the
-  remote checkout is mounted elsewhere.
+- HOSTFILE: defaults to hostfile in the repository root.
+- SSH_PORT: defaults to 62218 for every container. Change it consistently with
+  the containers' sshd configuration; it is separate from MASTER_PORT.
+- The remote source directory is the same absolute path as the launching
+  checkout. SSH_USER, REMOTE_CONTAINER and REMOTE_WORKDIR are not used.
 - MASTER_ADDR / MASTER_PORT: override only when the first host is not reachable
   over the training network or port 29620 is occupied.
 
@@ -49,13 +57,31 @@ specific set of RoCE adapters, configure MCCL_IB_HCA in the node environment;
 exporting it on the controller applies the same list to all nodes. Network
 defaults are in recipes/common/musa_runtime.sh and can be overridden.
 Single-node training does not cap channels; multi-node training defaults to
-MCCL_MAX_NCHANNELS=14 and accepts an override.
+MCCL_MAX_NCHANNELS=32 and accepts an override.
 
 DRYRUN=1 prints commands without SSH. CHECK_ONLY=1 checks connections and paths
 without starting training. Actual launch performs the same checks first.
 Per-node logs and exit codes are saved under OUTPUT_DIR; controller SSH logs
 are under logs/multinode-<id>. Failure or Ctrl-C terminates this launch's process
 groups. If SSH becomes unreachable, inspect the remote processes manually.
+
+## Stop training
+
+From the same checkout inside the launch container:
+
+```bash
+bash stop_all.sh
+```
+
+This uses HOSTFILE and SSH_PORT (62218 by default) to stop this checkout's
+training launchers and their children on all listed nodes. Other Python jobs
+are left alone. Processes receive termination signals before forced cleanup;
+no extra checkpoint is saved and existing outputs are retained. Unreachable
+nodes are reported as unconfirmed and need manual inspection.
+
+MCCL_DEBUG defaults to WARN, suppressing routine INFO output while retaining
+warnings. Set MCCL_DEBUG=INFO before launching to debug communication; the
+controller forwards this override to every node.
 
 ## Optional ZeRO-2 alignment
 
