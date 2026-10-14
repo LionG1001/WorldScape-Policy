@@ -1,10 +1,10 @@
-# Agilex training dependencies for an existing MUSA image (Python 3.11/3.12).
+# Training overlay for musa-compile-s5000 ubuntu22.04-py312-5.2.0-2.11.0.post2.
 # Preinstall the matching torch/torch_musa stack; install vendor DeepSpeed separately.
 # Resolve ordinary dependencies normally; constraints protect the tested stack.
 -c constraints-musa.txt
 
 torchada==0.1.96
-setuptools>=67
+setuptools==75.8.0
 wheel
 av==15.0.0
 numpy==1.26.4
