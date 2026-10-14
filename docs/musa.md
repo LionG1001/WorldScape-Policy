@@ -2,11 +2,58 @@
 
 The opt-in MUSA recipe uses [torchada](https://github.com/MooreThreads/torchada)
 0.1.96 and an existing `torch_musa` image with a MUSA-enabled DeepSpeed build.
-Install `requirements-musa.txt` with `python -m pip install --no-deps -r
-requirements-musa.txt`. Keep the image's torch / torch_musa stack; the upstream
-CUDA dependency pins are not a MUSA installation recipe. Use the container's
-default Python. Dataset decoding also needs PyAV, OpenCV, pandas, pyarrow and
-SciPy, plus the ordinary native training dependencies.
+Use the container's default Python; no virtual environment is required.
+The tested S5000 stack is torch / torch_musa 2.11.0.post2, torchvision
+0.26.0.post2+da055cc, torchaudio 2.11.0.post2 and native MUSA DeepSpeed
+0.19.3+3791c4da. Provision those vendor builds first; the base compile image
+alone is not a complete training environment. A generic PyPI DeepSpeed install
+is not a replacement for the validated MUSA build.
+
+From the source checkout, in **each** container (do not install packages while
+training is running):
+
+```bash
+# The image must already contain its matching MUSA PyTorch packages.
+python -c 'import torch, torch_musa, torchvision, torchaudio; print(torch.__version__, torch.musa.device_count())'
+python -m pip install -r requirements-musa.txt
+```
+
+If native MUSA DeepSpeed is not already installed, obtain the approved vendor
+source for 0.19.3 at revision 3791c4da, unpack it, then install it using its
+actual path (replace the example path below):
+
+```bash
+DS_ACCELERATOR=musa DS_BUILD_OPS=0 DS_BUILD_STRING=+3791c4da \
+  python -m pip install --no-deps --no-build-isolation /path/to/DeepSpeed-3791c4da
+```
+
+The requirements file supplies this build's Python dependencies. DS_BUILD_OPS=0
+skips optional prebuilt operators; fused/JIT operators may require compiler tools
+and writable local cache space. Then register WorldScape and check the entry:
+
+```bash
+python -m pip install --no-deps --no-build-isolation -e .
+DS_ACCELERATOR=musa python -c 'from deepspeed.accelerator import get_accelerator; assert get_accelerator().device_name() == "musa"'
+WSP_USE_TORCHADA=1 TORCHADA_FORCE_CUDA_AVAILABLE=1 DS_ACCELERATOR=musa python -m worldscape_policy.cli.train --help
+```
+
+`requirements-musa.txt` includes core, training and Agilex decoding dependencies;
+allow pip to resolve their transitive dependencies. It loads
+`constraints-musa.txt` to protect the tested vendor stack. For a different image,
+review those constraints against its vendor versions first. To preview changes,
+add `--dry-run` to the requirements install command.
+
+The editable project install intentionally uses `--no-deps`: upstream
+`pyproject.toml` still pins CUDA-era torch and DeepSpeed versions. Do not run
+`pip install -r requirements.txt`, plain `pip install -e .` or `pip install
+-e '.[train]'` in this MUSA environment. `pip check` can report these known
+upstream metadata mismatches; inspect other missing/conflicting dependencies
+separately rather than downgrading the MUSA stack to silence them.
+
+This is a source-checkout workflow: recipes and configs are used from the
+repository. Simulation/serving extras (MuJoCo, PyBullet, websockets, robot SDKs)
+are not needed for Agilex training. External FlashAttention is optional;
+the default MUSA SDPA path does not require it.
 
 ## Launch
 
