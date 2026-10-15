@@ -56,7 +56,10 @@ See [Demonstration-video conditioning](#3-demonstration-video-conditioning) for 
 
 ## 🛠️ Installation
 
-The validated environment uses Python 3.11, PyTorch 2.8.0, CUDA 12.9,
+For **MUSA / S5000**, follow [MUSA installation](docs/musa.md) instead of the
+CUDA commands below.
+
+The validated CUDA environment uses Python 3.11, PyTorch 2.8.0, CUDA 12.9,
 TorchVision 0.23.0, and DeepSpeed 0.18.9.
 
 ```bash

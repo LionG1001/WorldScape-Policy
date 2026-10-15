@@ -1,0 +1,7 @@
+# Tested S5000 MUSA 5.2 image stack; constraints do not install these packages.
+# Provision vendor builds first. Adapt deliberately for a different image.
+torch==2.11.0.post2
+torch-musa==2.11.0.post2
+torchvision==0.26.0.post2+da055cc
+torchaudio==2.11.0.post2
+deepspeed==0.19.3+3791c4da

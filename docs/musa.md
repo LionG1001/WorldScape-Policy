@@ -2,11 +2,41 @@
 
 The opt-in MUSA recipe uses [torchada](https://github.com/MooreThreads/torchada)
 0.1.96 and an existing `torch_musa` image with a MUSA-enabled DeepSpeed build.
-Install `requirements-musa.txt` with `python -m pip install --no-deps -r
-requirements-musa.txt`. Keep the image's torch / torch_musa stack; the upstream
-CUDA dependency pins are not a MUSA installation recipe. Use the container's
-default Python. Dataset decoding also needs PyAV, OpenCV, pandas, pyarrow and
-SciPy, plus the ordinary native training dependencies.
+These installation steps target only this base image:
+
+```text
+sh-harbor.mthreads.com/mcctest/musa-compile-s5000:ubuntu22.04-py312-5.2.0-2.11.0.post2
+```
+
+Keep its torch / torch_musa / torchvision / torchaudio packages and default
+Python. The pristine image does **not** contain DeepSpeed. Existing prepared
+training containers already have it and do not need reinstallation.
+
+In each newly created container, from the source checkout:
+
+```bash
+python -m pip install -r requirements-musa.txt
+# Use the supplied native MUSA DeepSpeed source, revision 3791c4da.
+# Replace this example with the unpacked source directory.
+DS_ACCELERATOR=musa DS_BUILD_OPS=0 DS_BUILD_STRING=+3791c4da \
+  python -m pip install --no-deps --no-build-isolation /path/to/DeepSpeed-3791c4da
+python -m pip install --no-deps --no-build-isolation -e .
+DS_ACCELERATOR=musa python -c 'import torch, torch_musa, deepspeed; from deepspeed.accelerator import get_accelerator; assert get_accelerator().device_name() == "musa"; print(torch.musa.device_count(), deepspeed.__version__)'
+WSP_USE_TORCHADA=1 TORCHADA_FORCE_CUDA_AVAILABLE=1 DS_ACCELERATOR=musa python -m worldscape_policy.cli.train --help
+```
+
+The requirements overlay adds training/decoding dependencies and aligns ordinary
+Python packages with the tested environment, including setuptools 75.8.0 for the
+source build. Already satisfied dependencies are reused. Its constraints retain
+the image's MUSA stack. The separate vendor DeepSpeed source is not included in
+this repository; DS_BUILD_OPS=0 skips optional operator precompilation.
+
+Only DeepSpeed and WorldScape use --no-deps; ordinary dependencies must resolve
+normally. Do not use upstream requirements.txt or plain pip install -e . here:
+upstream metadata pins different PyTorch versions. Known pip check mismatches
+for torch/vision/audio do not justify replacing the MUSA stack. Use the source
+checkout for training recipes and configs. Do not install packages during a run.
+The default SDPA backend requires no external FlashAttention installation.
 
 ## Launch
 
