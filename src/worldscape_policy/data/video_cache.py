@@ -23,7 +23,7 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     hashed = source.stat()
-    if (before.st_size, before.st_mtime_ns) != (hashed.st_size, hashed.st_mtime_ns):
+    if _source_version(before) != _source_version(hashed):
         raise RuntimeError(f"Video changed during hashing: {source}")
     identity = json.dumps([digest.hexdigest(), signature], sort_keys=True)
     key = hashlib.sha256(identity.encode()).hexdigest()
@@ -31,11 +31,15 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
     destination = directory / (key + ".npy")
     with (directory / (key + ".lock")).open("a+b") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        # Another worker may hold this lock while the source is replaced.
+        # Check hits too: a valid old cache is not valid for the new source.
+        if _source_version(before) != _source_version(source.stat()):
+            raise RuntimeError(f"Video changed while waiting for cache: {source}")
         if destination.exists():
             return _read_frames(destination)
         frames = decoder()
         after = source.stat()
-        if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        if _source_version(before) != _source_version(after):
             raise RuntimeError(f"Video changed during decoding: {source}")
         _validate_frames(frames)
         # Serialize quota checks and commits across different videos/workers.
@@ -48,8 +52,13 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
             journal = quota_lock.read()
             if journal and not journal.endswith(b"\n"):
                 raise ValueError("Incomplete video cache quota journal")
-            used = (sum(int(line) for line in journal.splitlines()) if journal else
-                    sum(p.stat().st_size for p in directory.glob("*.npy")))
+            if journal:
+                reservations = journal.splitlines()
+                if any(not line.isdigit() for line in reservations):
+                    raise ValueError("Invalid video cache quota journal")
+                used = sum(int(line) for line in reservations)
+            else:
+                used = sum(p.stat().st_size for p in directory.glob("*.npy"))
             estimated = frames.nbytes + 4096
             if used + estimated > max_bytes or shutil.disk_usage(directory).free < estimated + 2**30:
                 return frames  # Exact uncached decode when the cache is full.
@@ -69,6 +78,11 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
                 if temp is not None:
                     temp.unlink(missing_ok=True)
         return _read_frames(destination)
+
+
+def _source_version(stat):
+    # Inode/ctime also detect replacement with preserved file size and mtime.
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
 
 def _validate_frames(frames):

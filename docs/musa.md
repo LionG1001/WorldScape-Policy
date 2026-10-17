@@ -76,6 +76,10 @@ Cache keys include source content, decoder versions and resize settings.
 Pixels are preserved exactly; a full cache uses the original decoder without
 deleting existing entries. Interrupted cache writes can conservatively consume
 quota until the dedicated cache directory is reset while no jobs use it.
+Keep source videos unchanged during a run. Changes detected while hashing,
+waiting for the cache lock or decoding raise an error instead of returning a
+stale entry. Invalid quota records also fail explicitly; do not edit the quota
+journal or remove cache files while jobs are using the directory.
 Explicitly set `WSP_ROBOCOIN_VIDEO_CACHE_DIR=""` to disable this cache.
 These settings add no package dependencies and do not change dataset sampling.
 

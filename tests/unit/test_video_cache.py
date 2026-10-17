@@ -114,3 +114,58 @@ def test_different_videos_share_one_capacity_limit(tmp_path):
             if process.is_alive():
                 process.terminate()
                 process.join(timeout=5)
+
+
+@pytest.mark.parametrize("warm", [False, True])
+def test_source_replaced_while_waiting_for_lock(tmp_path, monkeypatch, warm):
+    import fcntl
+
+    source = tmp_path / "video"
+    source.write_bytes(b"old")
+    frames = np.zeros((2, 3, 4, 3), dtype=np.uint8)
+    cache = tmp_path / "cache"
+    def read():
+        return cached_video(source, cache, lambda: frames,
+                            signature="test", max_bytes=2**20)
+    if warm:
+        read()
+    original = source.stat()
+    real_flock = fcntl.flock
+    def replace_then_lock(fd, operation):
+        replacement = tmp_path / "replacement"
+        replacement.write_bytes(b"new")
+        os.utime(replacement, ns=(original.st_atime_ns, original.st_mtime_ns))
+        replacement.replace(source)
+        real_flock(fd, operation)
+    monkeypatch.setattr(fcntl, "flock", replace_then_lock)
+    with pytest.raises(RuntimeError, match="Video changed"):
+        read()
+
+
+@pytest.mark.parametrize("journal", [b"-100000\n", b"10\n-20\n", b"12", b"bad\n"])
+def test_invalid_quota_fails_before_publishing(tmp_path, journal):
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / ".quota.lock").write_bytes(journal)
+    with pytest.raises(ValueError):
+        cached_video(source, cache, lambda: np.zeros((2, 3, 4, 3), dtype=np.uint8),
+                     signature="test", max_bytes=1)
+    assert not list(cache.glob("*.npy"))
+
+
+def test_source_replaced_during_decode_is_not_cached(tmp_path):
+    source = tmp_path / "video"
+    source.write_bytes(b"old")
+    before = source.stat()
+    cache = tmp_path / "cache"
+    def decode():
+        replacement = tmp_path / "replacement"
+        replacement.write_bytes(b"new")
+        os.utime(replacement, ns=(before.st_atime_ns, before.st_mtime_ns))
+        replacement.replace(source)
+        return np.zeros((2, 3, 4, 3), dtype=np.uint8)
+    with pytest.raises(RuntimeError, match="Video changed during decoding"):
+        cached_video(source, cache, decode, signature="test", max_bytes=2**20)
+    assert not list(cache.glob("*.npy"))
