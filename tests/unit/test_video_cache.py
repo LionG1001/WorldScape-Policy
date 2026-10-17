@@ -1,0 +1,116 @@
+import multiprocessing
+import os
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from worldscape_policy.data.video_cache import cached_video
+
+
+def test_hit_signature_and_content_invalidation(tmp_path):
+    source = tmp_path / "video"
+    source.write_bytes(b"aaaa")
+    cache = tmp_path / "cache"
+    frames = np.arange(4*2*3*3, dtype=np.uint8).reshape(4,2,3,3)
+    calls = []
+    def decode():
+        calls.append(1)
+        return frames.copy()
+    def read(signature="rgb24-v1"):
+        return cached_video(source, cache, decode, signature=signature, max_bytes=2**20)
+    np.testing.assert_array_equal(read(), frames)
+    hit = read()
+    np.testing.assert_array_equal(hit, frames)
+    assert not hit.flags.writeable and len(calls) == 1
+    read("different-resize")
+    assert len(calls) == 2
+    original = source.stat()
+    source.write_bytes(b"bbbb")
+    os.utime(source, ns=(original.st_atime_ns, original.st_mtime_ns))
+    read()
+    assert len(calls) == 3  # Content matters even when size/mtime are unchanged.
+
+
+def test_full_cache_preserves_uncached_pixels(tmp_path):
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    frames = np.ones((2,3,4,3), dtype=np.uint8)
+    result = cached_video(source, tmp_path/"cache", lambda: frames,
+                          signature="test", max_bytes=1)
+    np.testing.assert_array_equal(result, frames)
+    assert not list((tmp_path/"cache").glob("*.npy"))
+
+
+def test_corruption_is_not_silently_hidden(tmp_path):
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    cache = tmp_path / "cache"
+    def read():
+        return cached_video(source, cache, lambda: np.zeros((2,3,4,3), dtype=np.uint8),
+                            signature="test", max_bytes=2**20)
+    read()
+    next(cache.glob("*.npy")).write_bytes(b"invalid")
+    with pytest.raises(ValueError):
+        read()
+
+
+def test_concurrent_workers_decode_once(tmp_path):
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    calls = tmp_path / "calls"
+    frames = np.arange(72, dtype=np.uint8).reshape(2,3,4,3)
+    def worker():
+        def decode():
+            with calls.open("a") as f:
+                f.write("decode\n")
+            return frames.copy()
+        result = cached_video(source, tmp_path/"cache", decode,
+                              signature="test", max_bytes=2**20)
+        np.testing.assert_array_equal(result, frames)
+    context = multiprocessing.get_context("fork")
+    processes = [context.Process(target=worker) for _ in range(4)]
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=10)
+            assert process.exitcode == 0
+        assert calls.read_text().splitlines() == ["decode"]
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+
+
+def test_different_videos_share_one_capacity_limit(tmp_path):
+    frames = np.ones((2, 3, 4, 3), dtype=np.uint8)
+    cache = tmp_path / "cache"
+    # Enough for one entry and its header, but not two reservations.
+    limit = frames.nbytes + 4096
+    sources = [tmp_path / f"video-{i}" for i in range(4)]
+    for i, source in enumerate(sources):
+        source.write_bytes(bytes([i]))
+
+    def worker(source):
+        actual = cached_video(source, cache, lambda: frames.copy(),
+                              signature="same-decoder", max_bytes=limit)
+        np.testing.assert_array_equal(actual, frames)
+
+    context = multiprocessing.get_context("fork")
+    processes = [context.Process(target=worker, args=(source,)) for source in sources]
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=10)
+            assert process.exitcode == 0
+        files = list(cache.glob("*.npy"))
+        assert len(files) == 1
+        assert files[0].stat().st_size <= limit
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)

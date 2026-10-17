@@ -3,6 +3,8 @@
 Pose convention is configurable: the recipe uses extrinsic XYZ Euler radians.
 This is a native adapter, not a copy of the customer's unpublished plugin.
 """
+import os
+
 import numpy as np
 from scipy.spatial.transform import Rotation
 
@@ -68,15 +70,30 @@ class RoboCoinSimEEF6DDataset(NativeLeRobotDataset):
             relative = info["video_path"].format(
                 episode_index=eid, episode_chunk=eid//int(info.get("chunks_size", 1000)), video_key=name)
             path = self.episode_roots[episode_index]/relative
-            frames = []
-            with av.open(str(path)) as container:
-                container.streams.video[0].codec_context.thread_count = 2
-                for frame in container.decode(video=0):
-                    rgb = frame.to_ndarray(format="rgb24")
-                    if self.cache_video_resize_width is not None:
-                        rgb = cv2.resize(rgb, (self.cache_video_resize_width,
-                                             self.cache_video_resize_height),
-                                         interpolation=cv2.INTER_AREA)
-                    frames.append(rgb)
-            arrays[name] = np.stack(frames)
+            def decode():
+                frames = []
+                with av.open(str(path)) as container:
+                    container.streams.video[0].codec_context.thread_count = 2
+                    for frame in container.decode(video=0):
+                        rgb = frame.to_ndarray(format="rgb24")
+                        if self.cache_video_resize_width is not None:
+                            rgb = cv2.resize(rgb, (self.cache_video_resize_width,
+                                                 self.cache_video_resize_height),
+                                             interpolation=cv2.INTER_AREA)
+                        frames.append(rgb)
+                return np.stack(frames)
+
+            cache = os.environ.get("WSP_ROBOCOIN_VIDEO_CACHE_DIR")
+            if cache:
+                from worldscape_policy.data.video_cache import cached_video
+                arrays[name] = cached_video(
+                    path, cache, decode,
+                    signature=dict(format="rgb24-inter-area-v1", av=av.__version__,
+                                   libraries=av.library_versions, cv2=cv2.__version__,
+                                   width=self.cache_video_resize_width,
+                                   height=self.cache_video_resize_height),
+                    max_bytes=int(os.environ.get("WSP_ROBOCOIN_VIDEO_CACHE_GIB", "64")) * 2**30,
+                )
+            else:
+                arrays[name] = decode()
         return arrays
