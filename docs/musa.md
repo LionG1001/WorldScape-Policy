@@ -49,12 +49,39 @@ bash recipes/posttrain/posttrain_agilex_fold_shirt_text_musa.sh
 ```
 
 Defaults: one node, eight processes, interactive text conditioning, BF16,
-ZeRO-2, batch 8 per device, AdamW LR 6e-5 / betas (0.9, 0.999), seed 62.
+ZeRO-2, batch 16 per device (GBS128 on eight GPUs with accumulation 1),
+AdamW LR 6e-5 / betas (0.9, 0.999), seed 62.
 The schedule is 50,000 steps with 5% warmup. For normal training, set
 `RUN_STEPS=null SAVE_STEPS=5000 SAVE_AT_END=true` and a fresh output directory.
 Set `RUN_STEPS=3` for a short smoke test. W&B is disabled by the MUSA entry.
 No model downloads occur. `DATALOADER_NUM_WORKERS` controls workers per rank;
+the recipe uses eight workers per rank and a prefetch factor of two.
 `DATASET_STEP_STRIDE` defaults to 1 and uses all eligible anchors.
+
+The MUSA recipe groups up to 16 independent samples for VAE encoding
+(`WSP_MUSA_VAE_BATCH_SIZE=16`). This changes the execution batch, not the video
+length, resolution or sample order. Set the variable to 0 or 1 for the original
+per-sample path. CPU, CUDA and tiled encoding retain their existing paths.
+
+Decoded RGB videos are reused across workers through a read-only disk cache.
+The recipe defaults to `.cache/decoded-video` under the checkout and a 512 GiB
+limit (`WSP_ROBOCOIN_VIDEO_CACHE_DIR` / `WSP_ROBOCOIN_VIDEO_CACHE_GIB`). For this
+dataset at 320x160 per camera, a full cache is approximately 333 GiB. It fills
+on demand, so cold runs include decoding and cache creation. Use writable
+storage with sufficient free capacity; shared storage must support cross-node
+file locks and atomic rename. A node-local path is also supported, with a
+separate cache and capacity requirement on every node.
+
+Cache keys include source content, decoder versions and resize settings.
+Pixels are preserved exactly; a full cache uses the original decoder without
+deleting existing entries. Interrupted cache writes can conservatively consume
+quota until the dedicated cache directory is reset while no jobs use it.
+Keep source videos unchanged during a run. Changes detected while hashing,
+waiting for the cache lock or decoding raise an error instead of returning a
+stale entry. Invalid quota records also fail explicitly; do not edit the quota
+journal or remove cache files while jobs are using the directory.
+Explicitly set `WSP_ROBOCOIN_VIDEO_CACHE_DIR=""` to disable this cache.
+These settings add no package dependencies and do not change dataset sampling.
 
 The launcher enables `WSP_USE_TORCHADA=1`, `TORCHADA_FORCE_CUDA_AVAILABLE=1`
 and `DS_ACCELERATOR=musa`. Importing the package applies torchada before its

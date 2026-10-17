@@ -1,5 +1,6 @@
 from einops import rearrange, repeat
 
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -1206,6 +1207,18 @@ class WanVideoVAE(nn.Module):
         return video.clamp_(-1, 1)
 
     def encode(self, videos, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
+        if (
+            isinstance(videos, torch.Tensor)
+            and videos.ndim == 5
+            and videos.shape[0] > 0
+            and videos.device.type == "musa"
+            and not tiled
+        ):
+            batch_size = int(os.environ.get("WSP_MUSA_VAE_BATCH_SIZE", "1"))
+            if batch_size < 0:
+                raise ValueError("WSP_MUSA_VAE_BATCH_SIZE must be non-negative")
+            if batch_size > 1:
+                return self._encode_batched(videos, batch_size)
         hidden_states = []
         for video in videos:
             video = video.unsqueeze(0)
@@ -1219,6 +1232,14 @@ class WanVideoVAE(nn.Module):
             hidden_states.append(hidden_state)
         hidden_states = torch.stack(hidden_states)
         return hidden_states
+
+    def _encode_batched(self, videos, batch_size):
+        # Each encode call owns its temporal feature cache. Group independent
+        # samples along B without mixing their temporal histories or ordering.
+        return torch.cat(
+            [self.single_encode(chunk) for chunk in videos.split(batch_size)],
+            dim=0,
+        )
 
     def decode(self, hidden_states, tiled=False, tile_size=(34, 34), tile_stride=(18, 16)):
         if tiled:

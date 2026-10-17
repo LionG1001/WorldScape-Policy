@@ -58,6 +58,22 @@ def test_preflight_rejects_existing_output(tmp_path):
     assert not list((tmp_path/'out').iterdir())
 
 
+def test_vae_batch_size_reaches_all_nodes_including_opt_out(tmp_path):
+    for value in ('0', '1', '16'):
+        case = tmp_path / value
+        case.mkdir()
+        env = setup(case, 'printf "vae_batch=%s cache=%s limit=%s\\n" "$WSP_MUSA_VAE_BATCH_SIZE" "$WSP_ROBOCOIN_VIDEO_CACHE_DIR" "$WSP_ROBOCOIN_VIDEO_CACHE_GIB"\n')
+        env['WSP_MUSA_VAE_BATCH_SIZE'] = value
+        env['WSP_ROBOCOIN_VIDEO_CACHE_DIR'] = '' if value == '0' else '/cache with spaces'
+        env['WSP_ROBOCOIN_VIDEO_CACHE_GIB'] = '64'
+        result = subprocess.run(['bash', launcher(case)], env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, result.stderr
+        for rank in range(2):
+            expected = f"vae_batch={value} cache={env['WSP_ROBOCOIN_VIDEO_CACHE_DIR']} limit=64"
+            assert expected in (case / f'out/launcher-node-{rank}.log').read_text()
+
+
 def test_failure_stops_peer(tmp_path):
     env=setup(tmp_path, 'if [[ "$NODE_RANK" == 0 ]]; then sleep 1; exit 7; fi\ntrap "echo stopped; exit 143" TERM\necho ready\nsleep 60 & wait\n')
     start=time.monotonic()
