@@ -12,13 +12,27 @@ export TOKENIZER_DIR="${TOKENIZER_DIR:-/data/share/models/worldscape-policy/umt5
 export DATALOADER_NUM_WORKERS="${DATALOADER_NUM_WORKERS:-8}"
 export WSP_MUSA_ZERO_ALIGNMENT_BYTES="${WSP_MUSA_ZERO_ALIGNMENT_BYTES:-128}"
 export WSP_MUSA_ATTENTION_BACKEND="${WSP_MUSA_ATTENTION_BACKEND:-sdpa}"
+# Group independent VAE samples; set 0/1 to restore per-sample encoding.
+export WSP_MUSA_VAE_BATCH_SIZE="${WSP_MUSA_VAE_BATCH_SIZE:-16}"
+# Native BF16 RMSNorm; set 0 to restore the original implementation.
+export WSP_MUSA_FUSED_RMSNORM="${WSP_MUSA_FUSED_RMSNORM:-1}"
+# Optional native AdamW fusion; null preserves PyTorch automatic selection.
+export WSP_MUSA_FUSED_ADAMW="${WSP_MUSA_FUSED_ADAMW:-null}"
+# Bounded decoded-video cache. An explicit empty value disables it.
+# Put ROOT on shared storage for cross-node reuse; allow about 512 GiB.
+export WSP_ROBOCOIN_VIDEO_CACHE_DIR="${WSP_ROBOCOIN_VIDEO_CACHE_DIR-$ROOT/.cache/decoded-video}"
+# Optional camera concurrency per worker; each decoder keeps two codec threads.
+export WSP_ROBOCOIN_VIDEO_DECODE_THREADS="${WSP_ROBOCOIN_VIDEO_DECODE_THREADS:-1}"
+# Bound CPU color-augmentation intermediates; 0 restores whole-video processing.
+export WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK="${WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK:-4}"
+export WSP_ROBOCOIN_VIDEO_CACHE_GIB="${WSP_ROBOCOIN_VIDEO_CACHE_GIB:-512}"
 export WSP_USE_TORCHADA=1 TORCHADA_FORCE_CUDA_AVAILABLE=1 DS_ACCELERATOR=musa
 export WSP_PYTHON="${WSP_PYTHON:-$(command -v python)}"
 export WSP_AUTO_DOWNLOAD=false WSP_MODE=interactive VISUAL_PROMPT=none
 export NUM_GPUS="${NUM_GPUS:-8}"
 export MLP_WORKER_NUM="${MLP_WORKER_NUM:-1}" MLP_ROLE_INDEX="${MLP_ROLE_INDEX:-0}"
 export DEEPSPEED_MODE="${DEEPSPEED_MODE:-zero2}"
-export PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-8}"
+export PER_DEVICE_TRAIN_BATCH_SIZE="${PER_DEVICE_TRAIN_BATCH_SIZE:-16}"
 export MAX_STEPS="${MAX_STEPS:-50000}" RUN_STEPS="${RUN_STEPS:-null}"
 export LEARNING_RATE="${LEARNING_RATE:-6e-5}" LR_SCHEDULE="${LR_SCHEDULE:-linear}"
 export ADAM_BETA1="${ADAM_BETA1:-0.9}" ADAM_BETA2="${ADAM_BETA2:-0.999}"

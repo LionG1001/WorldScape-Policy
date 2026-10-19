@@ -425,6 +425,7 @@ def build_registered_loader(
     pin_memory: bool = False,
     seed: int = 0,
     augment_video: bool = False,
+    augmentation_frame_chunk_size: int = 0,
     training: bool = True,
     wo_norm: bool = True,
     action_mode: str = "eef",
@@ -483,7 +484,7 @@ def build_registered_loader(
             else None
         ),
         video_augmentation=(
-            NativeVideoAugmentation(training=training)
+            NativeVideoAugmentation(training=training, frame_chunk_size=augmentation_frame_chunk_size)
             if augment_video
             else None
         ),

@@ -58,6 +58,22 @@ def test_preflight_rejects_existing_output(tmp_path):
     assert not list((tmp_path/'out').iterdir())
 
 
+def test_vae_batch_size_reaches_all_nodes_including_opt_out(tmp_path):
+    for value in ('0', '1', '16'):
+        case = tmp_path / value
+        case.mkdir()
+        env = setup(case, 'printf "vae_batch=%s cache=%s limit=%s\\n" "$WSP_MUSA_VAE_BATCH_SIZE" "$WSP_ROBOCOIN_VIDEO_CACHE_DIR" "$WSP_ROBOCOIN_VIDEO_CACHE_GIB"\n')
+        env['WSP_MUSA_VAE_BATCH_SIZE'] = value
+        env['WSP_ROBOCOIN_VIDEO_CACHE_DIR'] = '' if value == '0' else '/cache with spaces'
+        env['WSP_ROBOCOIN_VIDEO_CACHE_GIB'] = '64'
+        result = subprocess.run(['bash', launcher(case)], env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, result.stderr
+        for rank in range(2):
+            expected = f"vae_batch={value} cache={env['WSP_ROBOCOIN_VIDEO_CACHE_DIR']} limit=64"
+            assert expected in (case / f'out/launcher-node-{rank}.log').read_text()
+
+
 def test_failure_stops_peer(tmp_path):
     env=setup(tmp_path, 'if [[ "$NODE_RANK" == 0 ]]; then sleep 1; exit 7; fi\ntrap "echo stopped; exit 143" TERM\necho ready\nsleep 60 & wait\n')
     start=time.monotonic()
@@ -65,6 +81,21 @@ def test_failure_stops_peer(tmp_path):
     assert result.returncode!=0
     assert time.monotonic()-start<10
     assert 'stopped' in (tmp_path/'out/launcher-node-1.log').read_text()
+
+
+def test_compute_optimization_controls_reach_all_nodes(tmp_path):
+    for fused in ('0', '1'):
+        case = tmp_path / fused
+        case.mkdir()
+        adamw = 'true' if fused == '1' else 'null'
+        cameras = '3' if fused == '1' else '1'
+        env = setup(case, 'printf "rms=%s adamw=%s cameras=%s chunks=%s\\n" "$WSP_MUSA_FUSED_RMSNORM" "$WSP_MUSA_FUSED_ADAMW" "$WSP_ROBOCOIN_VIDEO_DECODE_THREADS" "$WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK"\n')
+        env.update(WSP_MUSA_FUSED_RMSNORM=fused, WSP_MUSA_FUSED_ADAMW=adamw, WSP_ROBOCOIN_VIDEO_DECODE_THREADS=cameras, WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK='4' if fused == '1' else '0')
+        result = subprocess.run(['bash', launcher(case)], env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, result.stderr
+        for rank in range(2):
+            assert f'rms={fused} adamw={adamw} cameras={cameras} chunks={4 if fused == "1" else 0}' in (case / f'out/launcher-node-{rank}.log').read_text()
 
 
 def test_interrupt_stops_both(tmp_path):

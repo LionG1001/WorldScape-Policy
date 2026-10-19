@@ -11,6 +11,13 @@ and execute the desired shell entry directly. Single-node run names are generate
 automatically. Both modes retain full-training defaults; use RUN_STEPS=50,
 SAVE_STEPS=0 and SAVE_AT_END=false for a short validation run.
 
+Each GPU uses batch 16 and gradient accumulation 1 by default: eight GPUs give
+GBS128 and two eight-GPU nodes give GBS256. VAE grouping and decoded-video cache
+settings are inherited from the single-node recipe and forwarded by the
+controller, including explicit 0/empty opt-outs. The default cache is under the
+checkout; use shared storage with cross-node file locking for shared reuse.
+See `docs/musa.md` for capacity requirements and cold-cache behavior.
+
 ## One-command launch
 
 Create `hostfile` in the repository root, using the
@@ -86,6 +93,7 @@ controller forwards this override to every node.
 ## Optional ZeRO-2 alignment
 
 WSP_MUSA_ZERO_ALIGNMENT_BYTES=128 pads flattened BF16/FP16 parameter groups so
-each rank's shard is aligned for MCCL all-gather. The default 0 disables it.
+each rank's shard is aligned for MCCL all-gather. The MUSA recipe enables 128
+by default; setting 0 restores the underlying runtime's default without padding.
 Model tensor shapes do not change. Restore checkpoints with the same alignment;
 the loader rejects mismatches. This option applies only to MUSA ZeRO-2.

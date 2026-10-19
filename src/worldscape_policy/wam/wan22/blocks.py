@@ -172,6 +172,11 @@ class WanRMSNorm(nn.Module):
         Args:
             x(Tensor): Shape [B, L, C]
         """
+        if x.device.type == 'musa' and os.environ.get('WSP_MUSA_FUSED_RMSNORM', '0') == '1':
+            from .musa_norm import musa_fused_rms_norm
+            normalized = musa_fused_rms_norm(x, self.eps)
+            if normalized is not None:
+                return normalized * self.weight
         return self._norm(x.float()).type_as(x) * self.weight
 
     def _norm(self, x):
