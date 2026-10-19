@@ -14,6 +14,8 @@ export WSP_MUSA_ZERO_ALIGNMENT_BYTES="${WSP_MUSA_ZERO_ALIGNMENT_BYTES:-128}"
 export WSP_MUSA_ATTENTION_BACKEND="${WSP_MUSA_ATTENTION_BACKEND:-sdpa}"
 # Group independent VAE samples; set 0/1 to restore per-sample encoding.
 export WSP_MUSA_VAE_BATCH_SIZE="${WSP_MUSA_VAE_BATCH_SIZE:-16}"
+# Opt-in native BF16 RMSNorm; 0 preserves the original implementation.
+export WSP_MUSA_FUSED_RMSNORM="${WSP_MUSA_FUSED_RMSNORM:-0}"
 # Bounded decoded-video cache. An explicit empty value disables it.
 # Put ROOT on shared storage for cross-node reuse; allow about 512 GiB.
 export WSP_ROBOCOIN_VIDEO_CACHE_DIR="${WSP_ROBOCOIN_VIDEO_CACHE_DIR-$ROOT/.cache/decoded-video}"

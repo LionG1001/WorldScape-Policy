@@ -98,6 +98,18 @@ available. The default backend is native SDPA. Set
 extension for supported shapes, or `auto` to allow extension discovery.
 Unsupported masks/shapes retain SDPA semantics; extension runtime errors propagate.
 
+## Optional native RMSNorm
+
+`WSP_MUSA_FUSED_RMSNORM=1` enables the native MUSA BF16 RMS normalization
+operator when both forward and backward kernels are available. The learned
+weight is multiplied separately, preserving Wan's normalization/cast/weight
+order. Unsupported devices, dtypes or layouts, and unavailable kernels use the
+original implementation; runtime operator failures propagate. The default is
+`0`. This option needs no extra package and leaves model parameter names intact.
+Floating-point results can differ slightly from the unfused implementation.
+
+The multi-node launcher forwards this setting to every node.
+
 ## Dataset semantics to review
 
 `robocoin_sim_eef6d_text` reads the original RoboCOIN LeRobot parquet/video

@@ -83,6 +83,19 @@ def test_failure_stops_peer(tmp_path):
     assert 'stopped' in (tmp_path/'out/launcher-node-1.log').read_text()
 
 
+def test_compute_optimization_controls_reach_all_nodes(tmp_path):
+    for fused in ('0', '1'):
+        case = tmp_path / fused
+        case.mkdir()
+        env = setup(case, 'printf "fused=%s\\n" "$WSP_MUSA_FUSED_RMSNORM"\n')
+        env.update(WSP_MUSA_FUSED_RMSNORM=fused)
+        result = subprocess.run(['bash', launcher(case)], env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, result.stderr
+        for rank in range(2):
+            assert f'fused={fused}' in (case / f'out/launcher-node-{rank}.log').read_text()
+
+
 def test_interrupt_stops_both(tmp_path):
     env=setup(tmp_path, 'trap "echo stopped; exit 143" TERM\necho ready\nsleep 60 & wait\n')
     process=subprocess.Popen(['bash',launcher(tmp_path)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
