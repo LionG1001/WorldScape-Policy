@@ -26,6 +26,9 @@ model:
   expected_num_frames: 33
   expected_action_horizon: 24
 
+optimizer:
+  fused: ${oc.decode:${oc.env:WSP_MUSA_FUSED_ADAMW,null}}
+
 batch_adapter:
   embodiment_ids:
     agilex: 0
@@ -44,6 +47,7 @@ data_loader:
   pin_memory: false
   seed: ${oc.decode:${oc.env:SEED,62}}
   augment_video: true
+  augmentation_frame_chunk_size: ${oc.decode:${oc.env:WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK,0}}
   training: true
   wo_norm: true
   dataset_kwargs:

@@ -87,13 +87,15 @@ def test_compute_optimization_controls_reach_all_nodes(tmp_path):
     for fused in ('0', '1'):
         case = tmp_path / fused
         case.mkdir()
-        env = setup(case, 'printf "fused=%s\\n" "$WSP_MUSA_FUSED_RMSNORM"\n')
-        env.update(WSP_MUSA_FUSED_RMSNORM=fused)
+        adamw = 'true' if fused == '1' else 'null'
+        cameras = '3' if fused == '1' else '1'
+        env = setup(case, 'printf "rms=%s adamw=%s cameras=%s chunks=%s\\n" "$WSP_MUSA_FUSED_RMSNORM" "$WSP_MUSA_FUSED_ADAMW" "$WSP_ROBOCOIN_VIDEO_DECODE_THREADS" "$WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK"\n')
+        env.update(WSP_MUSA_FUSED_RMSNORM=fused, WSP_MUSA_FUSED_ADAMW=adamw, WSP_ROBOCOIN_VIDEO_DECODE_THREADS=cameras, WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK='4' if fused == '1' else '0')
         result = subprocess.run(['bash', launcher(case)], env=env,
                                 capture_output=True, text=True, timeout=15)
         assert result.returncode == 0, result.stderr
         for rank in range(2):
-            assert f'fused={fused}' in (case / f'out/launcher-node-{rank}.log').read_text()
+            assert f'rms={fused} adamw={adamw} cameras={cameras} chunks={4 if fused == "1" else 0}' in (case / f'out/launcher-node-{rank}.log').read_text()
 
 
 def test_interrupt_stops_both(tmp_path):

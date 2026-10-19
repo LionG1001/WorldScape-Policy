@@ -42,7 +42,7 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
         if _source_version(before) != _source_version(after):
             raise RuntimeError(f"Video changed during decoding: {source}")
         _validate_frames(frames)
-        # Serialize quota checks and commits across different videos/workers.
+        # Serialize only reservations across different videos/workers.
         with (directory / ".quota.lock").open("a+b") as quota_lock:
             fcntl.flock(quota_lock, fcntl.LOCK_EX)
             # A shared reservation journal avoids relying on a client's cached
@@ -60,23 +60,30 @@ def cached_video(source, directory, decoder, *, signature, max_bytes):
             else:
                 used = sum(p.stat().st_size for p in directory.glob("*.npy"))
             estimated = frames.nbytes + 4096
-            if used + estimated > max_bytes or shutil.disk_usage(directory).free < estimated + 2**30:
+            # Conservatively count all reservations as potentially in flight
+            # when checking free space; concurrent writes must not each spend
+            # the same reported free bytes. A full cache falls back to decode.
+            if used + estimated > max_bytes or shutil.disk_usage(directory).free < used + estimated + 2**30:
                 return frames  # Exact uncached decode when the cache is full.
             reservation = (f"{used}\n" if not journal else "") + f"{estimated}\n"
             quota_lock.write(reservation.encode())
             quota_lock.flush()
             os.fsync(quota_lock.fileno())
-            temp = None
-            try:
-                with tempfile.NamedTemporaryFile(dir=directory, suffix=".tmp", delete=False) as stream:
-                    temp = Path(stream.name)
-                    np.save(stream, frames, allow_pickle=False)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                os.replace(temp, destination)
-            finally:
-                if temp is not None:
-                    temp.unlink(missing_ok=True)
+        # The reservation above already accounts for this in-flight entry.
+        # Keep the per-video lock, but allow unrelated videos to write/fsync in
+        # parallel. Readers only see the final atomic rename; failures retain
+        # their reservation conservatively instead of overspending the quota.
+        temp = None
+        try:
+            with tempfile.NamedTemporaryFile(dir=directory, suffix=".tmp", delete=False) as stream:
+                temp = Path(stream.name)
+                np.save(stream, frames, allow_pickle=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp, destination)
+        finally:
+            if temp is not None:
+                temp.unlink(missing_ok=True)
         return _read_frames(destination)
 
 

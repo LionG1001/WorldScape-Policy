@@ -169,3 +169,78 @@ def test_source_replaced_during_decode_is_not_cached(tmp_path):
     with pytest.raises(RuntimeError, match="Video changed during decoding"):
         cached_video(source, cache, decode, signature="test", max_bytes=2**20)
     assert not list(cache.glob("*.npy"))
+
+
+def test_unrelated_writes_do_not_hold_global_quota_lock(tmp_path, monkeypatch):
+    """Both writers must reach np.save before either can finish its write."""
+    import worldscape_policy.data.video_cache as module
+    context = multiprocessing.get_context("fork")
+    barrier = context.Barrier(2)
+    frames = np.ones((2, 3, 4, 3), dtype=np.uint8)
+    real_save = module.np.save
+    def concurrent_save(*args, **kwargs):
+        barrier.wait(timeout=5)
+        return real_save(*args, **kwargs)
+    monkeypatch.setattr(module.np, "save", concurrent_save)
+    sources = [tmp_path / f"video-{i}" for i in range(2)]
+    for i, source in enumerate(sources):
+        source.write_bytes(bytes([i]))
+    cache = tmp_path / "cache"
+    limit = 2 * (frames.nbytes + 4096)
+    def worker(source):
+        actual = cached_video(source, cache, lambda: frames.copy(),
+                              signature="test", max_bytes=limit)
+        np.testing.assert_array_equal(actual, frames)
+    processes = [context.Process(target=worker, args=(source,)) for source in sources]
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=10)
+            assert process.exitcode == 0
+        assert len(list(cache.glob("*.npy"))) == 2
+        assert sum(map(int, (cache/".quota.lock").read_text().splitlines())) == limit
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=5)
+
+
+def test_failed_write_keeps_reservation_and_no_partial_entry(tmp_path, monkeypatch):
+    import worldscape_policy.data.video_cache as module
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    frames = np.ones((2, 3, 4, 3), dtype=np.uint8)
+    cache = tmp_path / "cache"
+    limit = frames.nbytes + 4096
+    def failed_save(stream, *args, **kwargs):
+        stream.write(b"partial")
+        raise OSError("simulated disk failure")
+    monkeypatch.setattr(module.np, "save", failed_save)
+    with pytest.raises(OSError, match="simulated disk failure"):
+        cached_video(source, cache, lambda: frames, signature="test", max_bytes=limit)
+    assert not list(cache.glob("*.npy")) and not list(cache.glob("*.tmp"))
+    assert sum(map(int, (cache/".quota.lock").read_text().splitlines())) == limit
+    # The failed reservation consumes quota: retry decodes without publishing.
+    np.testing.assert_array_equal(
+        cached_video(source, cache, lambda: frames, signature="test", max_bytes=limit), frames)
+
+
+def test_free_space_counts_unpublished_reservations(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import worldscape_policy.data.video_cache as module
+    source = tmp_path / "video"
+    source.write_bytes(b"source")
+    frames = np.ones((2, 3, 4, 3), dtype=np.uint8)
+    estimated = frames.nbytes + 4096
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / ".quota.lock").write_text(f"{estimated}\n")
+    monkeypatch.setattr(module.shutil, "disk_usage",
+                        lambda _: SimpleNamespace(free=2**30 + estimated))
+    result = cached_video(source, cache, lambda: frames,
+                          signature="test", max_bytes=3 * estimated)
+    np.testing.assert_array_equal(result, frames)
+    assert not list(cache.glob("*.npy"))
+    assert (cache / ".quota.lock").read_text() == f"{estimated}\n"

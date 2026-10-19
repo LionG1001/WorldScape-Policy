@@ -76,11 +76,29 @@ Cache keys include source content, decoder versions and resize settings.
 Pixels are preserved exactly; a full cache uses the original decoder without
 deleting existing entries. Interrupted cache writes can conservatively consume
 quota until the dedicated cache directory is reset while no jobs use it.
+Different videos write concurrently after reserving capacity; the per-video lock
+and atomic rename prevent partial reads. Free-space admission conservatively
+counts all reservations as potentially pending, and may use uncached decoding
+earlier on a nearly full filesystem.
 Keep source videos unchanged during a run. Changes detected while hashing,
 waiting for the cache lock or decoding raise an error instead of returning a
 stale entry. Invalid quota records also fail explicitly; do not edit the quota
 journal or remove cache files while jobs are using the directory.
 Explicitly set `WSP_ROBOCOIN_VIDEO_CACHE_DIR=""` to disable this cache.
+
+`WSP_ROBOCOIN_VIDEO_DECODE_THREADS` controls concurrent camera reads per worker
+(1–3; default 1). Set `3` to decode three independent cameras in
+parallel; `1` restores serial loading. Each camera owns its PyAV container and
+keeps two codec threads. Camera ordering, sampling, and RGB values are unchanged.
+This setting is forwarded to all nodes; account for the available CPU cores when
+combining camera concurrency with many DataLoader workers.
+`WSP_ROBOCOIN_AUGMENT_FRAME_CHUNK` defaults to `4` in the MUSA recipe.
+It processes CPU spatial/color augmentation in small frame groups to limit
+floating-point temporaries. Every group reuses the same crop/color choices;
+the caller's RNG advances once, preserving frame values and subsequent random
+choices. Set `0` to restore whole-video augmentation. The common augmentation
+class defaults to `0`, so other recipes keep their existing behavior.
+
 These settings add no package dependencies and do not change dataset sampling.
 
 The launcher enables `WSP_USE_TORCHADA=1`, `TORCHADA_FORCE_CUDA_AVAILABLE=1`
@@ -98,17 +116,27 @@ available. The default backend is native SDPA. Set
 extension for supported shapes, or `auto` to allow extension discovery.
 Unsupported masks/shapes retain SDPA semantics; extension runtime errors propagate.
 
-## Optional native RMSNorm
+## Native RMSNorm
 
 `WSP_MUSA_FUSED_RMSNORM=1` enables the native MUSA BF16 RMS normalization
 operator when both forward and backward kernels are available. The learned
 weight is multiplied separately, preserving Wan's normalization/cast/weight
 order. Unsupported devices, dtypes or layouts, and unavailable kernels use the
-original implementation; runtime operator failures propagate. The default is
-`0`. This option needs no extra package and leaves model parameter names intact.
+original implementation; runtime operator failures propagate. The MUSA recipes enable this by default; set
+`WSP_MUSA_FUSED_RMSNORM=0` to use the original path. This option needs no extra package and leaves model parameter names intact.
 Floating-point results can differ slightly from the unfused implementation.
 
 The multi-node launcher forwards this setting to every node.
+
+## Optional fused AdamW
+
+Set `WSP_MUSA_FUSED_ADAMW=true` to select `torch.optim.AdamW(fused=True)`
+for the MUSA recipe. The default is `null` (PyTorch automatic selection). It retains AdamW's learning rate,
+betas, epsilon, weight decay and parameter groups; it requires native MUSA
+fused AdamW support in the installed PyTorch stack. Set `WSP_MUSA_FUSED_ADAMW=null` to revert to automatic selection; explicit
+`false` also disables fusion but can select the single-tensor implementation.
+This setting is forwarded to all nodes. Floating-point optimizer states can
+have small rounding differences from the foreach implementation.
 
 ## Dataset semantics to review
 
