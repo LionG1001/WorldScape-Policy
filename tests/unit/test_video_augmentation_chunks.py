@@ -5,6 +5,7 @@ import pytest
 from worldscape_policy.data.augmentation import NativeVideoAugmentation
 
 
+@pytest.mark.filterwarnings("error:The given NumPy array is not writable")
 @pytest.mark.parametrize('training', [False, True])
 @pytest.mark.parametrize('views', [False, True])
 @pytest.mark.parametrize('bit_generator', [np.random.PCG64, np.random.Philox])
@@ -26,6 +27,11 @@ def test_chunking_preserves_pixels_rng_and_input(training, views, bit_generator)
             np.testing.assert_array_equal(values, original)
 
 
-def test_negative_chunk_rejected():
-    with pytest.raises(ValueError, match='non-negative'):
-        NativeVideoAugmentation(frame_chunk_size=-1)
+@pytest.mark.parametrize('chunk', [-1, 1.5, 4.0, '4', None, True, False])
+def test_invalid_chunk_rejected_before_loading_video(chunk):
+    with pytest.raises(ValueError, match='non-negative integer'):
+        NativeVideoAugmentation(frame_chunk_size=chunk)
+
+
+def test_numpy_integer_chunk_accepted():
+    assert NativeVideoAugmentation(frame_chunk_size=np.int64(4)).frame_chunk_size == 4

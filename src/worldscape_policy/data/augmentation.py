@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
+from numbers import Integral
 
 import numpy as np
 import torch
@@ -25,8 +26,10 @@ class NativeVideoAugmentation:
     frame_chunk_size: int = 0
 
     def __post_init__(self):
-        if self.frame_chunk_size < 0:
-            raise ValueError("frame_chunk_size must be non-negative")
+        if (isinstance(self.frame_chunk_size, bool)
+                or not isinstance(self.frame_chunk_size, Integral)
+                or self.frame_chunk_size < 0):
+            raise ValueError("frame_chunk_size must be a non-negative integer")
 
     def __call__(
         self, video: np.ndarray, *, rng: np.random.Generator | None = None
@@ -55,7 +58,12 @@ class NativeVideoAugmentation:
             raise ValueError("video must be uint8 [T,H,W,C] or [T,V,H,W,C]")
         original_shape = values.shape
         flat = values.reshape(-1, *values.shape[-3:])
-        tensor = torch.from_numpy(np.ascontiguousarray(flat)).permute(0, 3, 1, 2)
+        flat = np.ascontiguousarray(flat)
+        # torch.from_numpy cannot safely represent a read-only mmap/view.
+        # Keep zero-copy conversion for ordinary writable arrays.
+        if not flat.flags.writeable:
+            flat = flat.copy()
+        tensor = torch.from_numpy(flat).permute(0, 3, 1, 2)
         generator = rng or np.random.default_rng()
         source_height, source_width = tensor.shape[-2:]
         crop_height = max(1, int(source_height * self.crop_scale))

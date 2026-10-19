@@ -96,7 +96,11 @@ combining camera concurrency with many DataLoader workers.
 It processes CPU spatial/color augmentation in small frame groups to limit
 floating-point temporaries. Every group reuses the same crop/color choices;
 the caller's RNG advances once, preserving frame values and subsequent random
-choices. Set `0` to restore whole-video augmentation. The common augmentation
+choices. The chunk size must be a non-negative integer; fractional, boolean
+and string values in direct Python configuration are rejected at construction.
+Read-only inputs receive a writable copy before conversion to a PyTorch tensor;
+ordinary writable inputs retain zero-copy conversion.
+Set `0` to restore whole-video augmentation. The common augmentation
 class defaults to `0`, so other recipes keep their existing behavior.
 
 These settings add no package dependencies and do not change dataset sampling.
